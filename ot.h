@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-int OTsend(const unsigned char *, const unsigned char *, size_t, uint16_t,
+typedef uint16_t seq_t;
+
+int OTsend(const unsigned char *, const unsigned char *, size_t, seq_t,
   int);
-int OTreceive(unsigned char *, size_t, bool, uint16_t, int);
+int OTreceive(unsigned char *, size_t, bool, seq_t, int);
 #endif //OT_H
