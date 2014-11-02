@@ -55,10 +55,22 @@
 #include "ot.h"
 #include "yao.h"
 
+#ifdef DEBUG
+  #include <stdio.h>
+  #define debug printf
+#else
+  #define debug
+#endif //DEBUG
+
 int alice(sec_t secret, int socketfd)
 {
+  debug("called alice() with secret %d with fd %d\n", secret, socketfd);
+  return OTsend("abcd", "defg", 5, 0, socketfd);
 }
 
 int bob(sec_t secret, int socketfd)
 {
+  debug("called bob() with secret %d with fd %d\n", secret, socketfd);
+  unsigned char buf[32];
+  return OTreceive(buf, sizeof(buf), false, 0, socketfd);
 }
