@@ -14,20 +14,42 @@
  */
 #define MAX_QUEUE 2
 
+/**
+ *  Errors.
+ *  
+ *  EBAD_ARG error if the command line arguments are invalid.
+ */
+#define EBAD_ARG
+
 static sec_t secret;
 
 /**
  *  @brief determine whether to act as the server or client.
+ *
+ *  argv = binary secret host port
+ *       = binary secret port 
  */
 int main(int argc, char **argv)
 {
+  int error;
+  if(argc < 3)
+  {
+    fprintf(stderr, "usage: %s secret [host] port\n", *argv);
+    return -EBAD_ARG;
+  }
+
+  secret = atoi(argv[1]);
+  error = (argc >= 4) ? client(argv[2], atoi(argv[3])) : server(atoi(argv[2]));
+  secret = 0;
+
+  return error;
 }
 
 /**
  *  @brief act as a server in the protocol.
  *
  *  @param portno the port number to listen on.
- *  @return non-zero on success.
+ *  @return non-zero on failure.
  */
 int server(int portno)
 {
@@ -79,4 +101,16 @@ done:
   close(listenfd);
   close(connfd);
   return error;
+}
+
+/**
+ *  @brief act as a client in the protocol.
+ *
+ *  @param host string representing the host name.
+ *  @param portno the port number to connect to.
+ *  @return non-zero on failure.
+ */
+int client(char *host, int portno)
+{
+  return 0;
 }
