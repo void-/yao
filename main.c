@@ -1,9 +1,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <fctnl.h>
+#include <fcntl.h>
 #include <unistd.h>
-#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 #include "yao.h"
 
@@ -19,7 +20,7 @@
  *  
  *  EBAD_ARG error if the command line arguments are invalid.
  */
-#define EBAD_ARG
+#define EBAD_ARG 1
 
 static sec_t secret;
 
@@ -56,29 +57,29 @@ int server(int portno)
   int error = 0;
   struct sockaddr_in servAddr;
   struct sockaddr_in cliAddr;
-  unsigned cliLen = sizeof(cli_addr);
+  unsigned cliLen = sizeof(cliAddr);
   int listenfd = socket(PF_INET, SOCK_STREAM, 0);
   int connfd = -1;
   int socketOption = 1;
 
-  if(sockfd < 0)
+  if(listenfd < 0)
   {
     error = -1;
     goto done;
   }
 
-  if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &socketOption,
+  if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &socketOption,
       sizeof(socketOption)))
   {
     error = -2;
     goto done;
   }
 
-  memset((unsigned char *) &serv_addr, 0, sizeof(serv_addr));
-  serv_addr.sin_family = AF_INET;
-  serv_addr.sin_addr.s_addr = INADDR_ANY;
-  serv_addr.sin_port = htons(portno);
-  if(bind(listenfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+  memset((unsigned char *) &servAddr, 0, sizeof(servAddr));
+  servAddr.sin_family = AF_INET;
+  servAddr.sin_addr.s_addr = INADDR_ANY;
+  servAddr.sin_port = htons(portno);
+  if(bind(listenfd, (struct sockaddr *) &servAddr, sizeof(servAddr)) < 0)
   {
     error = -3;
     goto done;
@@ -86,7 +87,7 @@ int server(int portno)
 
   //listen for a connection
   listen(listenfd, MAX_QUEUE);
-  if((connfd = accept(listenfd, (struct sockaddr *) &cli_addr, &clilen)) < 0)
+  if((connfd = accept(listenfd, (struct sockaddr *) &cliAddr, &cliLen)) < 0)
   {
     error = -4;
     goto done;
