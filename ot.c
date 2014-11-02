@@ -72,6 +72,7 @@
 #define EBAD_SIZE 12
 
 static int sendPubicKeys(RSA *, RSA *, int);
+ssize_t read_exactly(int, void *, size_t);
 
 /**
  *  @brief send one of two secrets via an oblivious transfer given a socket.
@@ -110,12 +111,12 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   AES_KEY symKey1;
 
   //check hello length
-  if((count = read(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE)
+  if((count = read_exactly(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE)
   {
     debug("count < HELLO_SIZE? %d\n", count < HELLO_SIZE);
     debug("Hello was wrong length; got %d, expected %d\n", count, HELLO_SIZE);
     error = -EBAD_HELLO;
-    goto done;
+    goto send_done;
   }
 
   //check hello message
@@ -135,7 +136,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     debug("Hello msg/Sequence number didn't match\n");
     error = -EBAD_HELLO;
-    goto done;
+    goto send_done;
   }
 
   //generate and send two public keys
@@ -143,28 +144,28 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     debug("Couldn't generate a public key\n");
     error = -EBAD_GEN;
-    goto done;
+    goto send_done;
   }
   if((k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
   {
     debug("Couldn't generate a public key\n");
     error = -EBAD_GEN;
-    goto done;
+    goto send_done;
   }
 
   if(sendPubicKeys(k0, k1, socketfd))
   {
     debug("Couldn't send public keys\n");
     error = -EBAD_SEND;
-    goto done;
+    goto send_done;
   }
 
   //read for the encrypted symmetric key
-  if((count = read(socketfd, buf, SYM_SIZE)) < SYM_SIZE)
+  if((count = read_exactly(socketfd, buf, SYM_SIZE)) < SYM_SIZE)
   {
-    debug("Couldn't read symmetric key\n");
+    debug("Couldn't read symmetric key, read %d\n", count);
     error = -EBAD_READ;
-    goto done;
+    goto send_done;
   }
 
   //decrypt under both private keys for two possible symmetric keys
@@ -173,13 +174,13 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
-    goto done;
+    goto send_done;
   }
   if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey0))
   {
     debug("couldn't derive symmetric key0\n");
     error = -EBAD_DERIVE;
-    goto done;
+    goto send_done;
   }
 
   if(RSA_private_decrypt(RSA_size(k0), buf, decryptBuffer, k1,
@@ -187,13 +188,13 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
-    goto done;
+    goto send_done;
   }
   if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey1))
   {
     debug("couldn't derive symmetric key1\n");
     error = -EBAD_DERIVE;
-    goto done;
+    goto send_done;
   }
 
   //encrypt and write both secrets
@@ -202,17 +203,17 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     debug("Couldn't write secret0 \n");
     error = -EBAD_TRANSFER;
-    goto done;
+    goto send_done;
   }
   AES_encrypt(secret1, buf, &symKey0);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret1 \n");
     error = -EBAD_TRANSFER;
-    goto done;
+    goto send_done;
   }
 
-done:
+send_done:
   //deallocate keys
   if(k0 != NULL)
   {
@@ -245,20 +246,23 @@ done:
 int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     int socketfd)
 {
+  debug("OTreceive()#%d\n", no);
   unsigned char buf[BUF_MAX];
   int error;
   size_t i;
+  size_t j;
   ssize_t count;
   RSA *k;
   AES_KEY symKey;
   unsigned char keyBuffer[PUB_BITS/8];
-  unsigned char *tmpPtr = (buf+(SERIAL_SIZE * which));
+  //unsigned char *tmpPtr = (buf+(SERIAL_SIZE * which));
+  unsigned const char *const tmpPtr = buf;
 
   //must have enough bytes
   if(size < SYM_SIZE)
   {
     error = -EBAD_SIZE;
-    goto done;
+    goto rec_done;
   }
 
   //copy hello into write buffer with null terminator
@@ -278,15 +282,16 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   {
     debug("Couldn't write hello; i=%d\n", i);
     error = -EBAD_HELLO;
-    goto done;
+    goto rec_done;
   }
 
+  debug("trying to read a serialized key\n");
   //read serialized keys
-  if((count = read(socketfd, buf, 2*SERIAL_SIZE)) < 2*SERIAL_SIZE)
+  if((count = read_exactly(socketfd, buf, 2*SERIAL_SIZE)) < 2*SERIAL_SIZE)
   {
     debug("couldn't read serialized public keys; read %d\n", count);
     error = -EBAD_RECEIVE;
-    goto done;
+    goto rec_done;
   }
 
   //deserialize either public key
@@ -295,7 +300,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   {
     debug("couldn't deserialize key %d properly\n", which);
     error = -EBAD_DECODE;
-    goto done;
+    goto rec_done;
   }
 
   //generate a padded symmetric key and encrypt it under k
@@ -303,14 +308,14 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   {
     debug("couldn't generate random key\n");
     error = -EBAD_GEN;
-    goto done;
+    goto rec_done;
   }
   if((count = RSA_public_encrypt(RSA_size(k), keyBuffer, buf, k,
       RSA_NO_PADDING)) < RSA_size(k))
   {
     debug("couldn't generate random key; got %d bytes\n", count);
     error = -EBAD_ENCRYPT;
-    goto done;
+    goto rec_done;
   }
 
   //send encrypted symmetric key
@@ -318,7 +323,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   {
     debug("Couldn't send encrypted symmetric key\n");
     error = -EBAD_SEND;
-    goto done;
+    goto rec_done;
   }
 
   //derive a symmetric key from the first 128 bits
@@ -326,21 +331,21 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   {
     debug("couldn't derive symmetric key1\n");
     error = -EBAD_DERIVE;
-    goto done;
+    goto rec_done;
   }
 
   //receive both encrypted secrets
-  if((count = read(socketfd, buf, 2*RSA_size(k))) < 2*RSA_size(k))
+  if((count = read_exactly(socketfd, buf, 2*RSA_size(k))) < 2*RSA_size(k))
   {
     debug("received too few bytes from transfer; count = %d", count);
     error = -EBAD_TRANSFER;
-    goto done;
+    goto rec_done;
   }
 
   //decrypt either secret
   AES_decrypt(buf+(which*SYM_SIZE), output, &symKey);
 
-done:
+rec_done:
   debug("error:%d\n", error);
   return error;
 }
@@ -370,13 +375,40 @@ static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
   {
     return -1;
   }
+  debug("count0:%d, count1:%d\n", count0, count1);
 
   //write keys
-  if(write(fd, buf0, count0) != count0 || write(fd, buf1, count1) != count1)
+  if(write(fd, buf0, count0) != count0)
+  {
+    return -3;
+  }
+  if(write(fd, buf1, count1) != count1)
   {
     return -3;
   }
 
   //how are buf0 and buf1 freed?
+  debug("keys sent\n");
   return 0;
+}
+
+/**
+ *  read_exactly() reads exactly \p count bytes until error.
+ */
+ssize_t read_exactly(int fd, void *buf, size_t count)
+{
+  ssize_t success;
+  size_t left = count;
+  size_t total = 0;
+  while(total < count)
+  {
+    success = read(fd, buf+total, left);
+    if(success < 0)
+    {
+      return -1;
+    }
+    total += success;
+    left -= success;
+  }
+  return count;
 }
