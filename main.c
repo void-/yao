@@ -22,6 +22,12 @@
  */
 #define EBAD_ARG 1
 
+#ifdef DEBUG
+  #define debug printf
+#else
+  #define debug
+#endif
+
 static sec_t secret;
 
 /**
@@ -40,6 +46,7 @@ int main(int argc, char **argv)
   }
 
   secret = atoi(argv[1]);
+  debug("secret = %d\n", secret);
   error = (argc >= 4) ? client(argv[2], atoi(argv[3])) : server(atoi(argv[2]));
   secret = 0;
 
@@ -54,6 +61,7 @@ int main(int argc, char **argv)
  */
 int server(int portno)
 {
+  debug("called server() with port %d\n", portno);
   int error = 0;
   struct sockaddr_in servAddr;
   struct sockaddr_in cliAddr;
@@ -85,6 +93,7 @@ int server(int portno)
     goto done;
   }
 
+  debug("about to listen() with fd %d\n", listenfd);
   //listen for a connection
   listen(listenfd, MAX_QUEUE);
   if((connfd = accept(listenfd, (struct sockaddr *) &cliAddr, &cliLen)) < 0)
@@ -92,6 +101,7 @@ int server(int portno)
     error = -4;
     goto done;
   }
+  debug("accepted a connection with fd %d\n", connfd);
 
   //close the socket, only 1 connection is needed
   close(listenfd);
