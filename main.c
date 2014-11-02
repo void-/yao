@@ -49,6 +49,27 @@ int main(int argc, char **argv)
   debug("secret = %d\n", secret);
   error = (argc >= 4) ? client(argv[2], atoi(argv[3])) : server(atoi(argv[2]));
   secret = 0;
+  debug("error: %d\n", error);
+  if(error < 0)
+  {
+    fprintf(stderr, "error occurred.\n");
+  }
+  else if(argc < 4)
+  {
+    printf("Ask the client for the result.\n");
+  }
+  else
+  {
+    printf("result:%d, ",error);
+    if(error)
+    {
+      printf("the server's is >= than client's\n");
+    }
+    else
+    {
+      printf("the client's is > than client's\n");
+    }
+  }
 
   return error;
 }
