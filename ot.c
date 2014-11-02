@@ -12,6 +12,8 @@
 #include "ot.h"
 #include <unistd.h>
 
+#include <stdio.h>
+
 #include <openssl/rsa.h>
 #include <openssl/bn.h>
 
@@ -19,12 +21,16 @@
  *  BUF_MAX the maximum number of bytes to read at once from a socket.
  *  HELLO_MSG the initial text of a hello message, without the sequence number.
  *  HELLO_SIZE the number of characters for a hello message.
+ *  PUB_BITS the number of bits to use for public keys.
  */
 #define BUF_MAX 512
 #define HELLO_MSG "OT#"
 #define HELLO_SIZE sizeof(HELLO_MSG) - 1 + sizeof(seq_t) //don't count null
 #define PUB_BITS 1024
 
+/**
+ *  EBAD_HELLO error when the hello message is bad.
+ */
 #define EBAD_HELLO 2
 
 /**
@@ -55,9 +61,8 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   bool success = true;
   int error = 0;
   size_t i;
-  RSA k0;
-  RSA k1;
-  BIGNUM e;
+  RSA *k0 = NULL;
+  RSA *k1 = NULL;
 
   count = read(socketfd, buf, BUF_MAX);
   //check hello length
@@ -85,17 +90,21 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto done;
   }
 
-  //initialize the public exponent
-  BN_init(&e);
-  BN_set_word(&e, RSA_F4);
-
   //generate and send two public keys
-  RSA_generate_key_ex(&k0, PUB_BITS, &e, NULL);
-  RSA_generate_key_ex(&k1, PUB_BITS, &e, NULL);
+  k0 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL);
+  k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL);
 
-  done:
-    bn_free(&e);
-    return error;
+done:
+  //deallocate keys
+  if(k0 != NULL)
+  {
+    RSA_free(k0);
+  }
+  if(k1 != NULL)
+  {
+    RSA_free(k1);
+  }
+  return error;
 }
 
 /**
