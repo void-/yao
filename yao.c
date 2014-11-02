@@ -68,10 +68,12 @@
  *  EBAD_GEN error when random number generation fails.
  *  EBAD_WRITE error when writing fails.
  *  EBAD_OT error if an OT fails.
+ *  EBAD_READ error when reading fails.
  */
 #define EBAD_GEN 2
 #define EBAD_WRITE 3
 #define EBAD_OT 4
+#define EBAD_READ 5
 
 #define fortuneI(f, i) ((f >> i) & 01)
 
@@ -85,6 +87,8 @@
 static void rol(bool [], size_t, size_t);
 static void pack(bool [], unsigned char [], size_t);
 static unsigned char boolToChar(bool *);
+static void unpack(unsigned char *, bool *, size_t);
+static void charToBool(unsigned char , bool *);
 
 /**
  *  @brief act as Alice in the protocol.
@@ -112,6 +116,7 @@ int alice(sec_t secret, int socketfd)
   size_t i;
   size_t j;
   size_t l;
+  size_t count;
 
   //pick random u in (0,2k) and v in [0,k]
   error |= RAND_bytes(&u, sizeof(u));
@@ -183,9 +188,9 @@ int alice(sec_t secret, int socketfd)
   rol(N, sizeof(N), u);
 
   //send N
-  if(write(socketfd, N, sizeof(N)) != sizeof(N))
+  if((count = write(socketfd, N, sizeof(N))) != sizeof(N))
   {
-    debug("Couldn't write N\n");
+    debug("Couldn't write N; read %d bytes\n", count);
     error = -EBAD_WRITE;
     goto done;
   }
@@ -204,8 +209,6 @@ int alice(sec_t secret, int socketfd)
     }
   }
 
-  //return OTsend("abcd", "defg", 5, 0, socketfd);
-
 done:
   debug("error:%d\n", error);
   return error;
@@ -217,8 +220,38 @@ done:
 int bob(sec_t secret, int socketfd)
 {
   debug("called bob() with secret %d with fd %d\n", secret, socketfd);
-  unsigned char buf[32];
-  return OTreceive(buf, sizeof(buf), false, 0, socketfd);
+  int error = 0;
+  bool N[k];
+  size_t count;
+  size_t i;
+  size_t j;
+  unsigned char buf[SYM_SIZE];
+  bool bitBuf[k];
+
+  //read N
+  if((count = read(socketfd, N, sizeof(N))) != sizeof(N))
+  {
+    debug("Couldn't read N; read %d bytes\n", count);
+    error = -EBAD_READ;
+    goto done;
+  }
+
+  //OT's
+  for(i = 0; i < d; ++i)
+  {
+    OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd);
+    unpack(buf, bitBuf, k);
+    for(j = 0; j < k; ++j)
+    {
+      N[j] = bitBuf[j] ^ N[j];
+    }
+  }
+
+  //lookAt r = N
+
+done:
+  debug("error: %d", error);
+  return error;
 }
 
 /**
@@ -282,4 +315,37 @@ static unsigned char boolToChar(bool *in)
         in[6] << 6 |
         in[7] << 7 ;
   return out;
+}
+
+/**
+ *  @brief unpack an array of chars into an array of bits.
+ *
+ *  @param buf the char array to read from.
+ *  @param bitBuf the bool array to unpack into.
+ *  @param the size, in bits, of \p bitBuf.
+ */
+static void unpack(unsigned char *buf, bool *bitBuf, size_t size)
+{
+  size_t i;
+  for(i = 0; i < (size / (8 * sizeof(unsigned char))); ++i)
+  {
+    charToBool(buf[i], bitBuf+(8*i));
+  }
+}
+
+/**
+ *  @brief unpack 8 bits from a char into a bool array.
+ *
+ *  No bounds checks are preformed.
+ *
+ *  @param c the char to read.
+ *  @param bitBuf the bool array to write into.
+ */
+static void charToBool(unsigned char c, bool *bitBuf)
+{
+  size_t i;
+  for(i = 0; i < 8 * sizeof(unsigned char); ++i)
+  {
+    bitBuf[i] = (c >> i) & 01;
+  }
 }
