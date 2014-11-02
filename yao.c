@@ -55,6 +55,24 @@
 #include "ot.h"
 #include "yao.h"
 
+/**
+ *  Constants.
+ *
+ *  d number of bits needed to represent a secret.
+ *  k number of bits needed to represent a symmetric oblivious transfer key.
+ */
+#define d (sizeof(sec_t) * 8)
+#define k (SYM_SIZE * 8)
+
+/**
+ *  EBAD_GEN error when random number generation fails.
+ *  EBAD_WRITE error when writing fails.
+ */
+#define EBAD_GEN 2
+#define EBAD_WRITE 3
+
+#define fortuneI(f, i) ((f >> i) & 01)
+
 #ifdef DEBUG
   #include <stdio.h>
   #define debug printf
@@ -62,15 +80,151 @@
   #define debug
 #endif //DEBUG
 
+void rol(bool [], size_t, size_t);
+
+/**
+ *  @brief act as Alice in the protocol.
+ *
+ *  @param secret the secret to compare in the protocol.
+ *  @param socketfd file descriptor to write to for the protocol.
+ */
 int alice(sec_t secret, int socketfd)
 {
   debug("called alice() with secret %d with fd %d\n", secret, socketfd);
-  return OTsend("abcd", "defg", 5, 0, socketfd);
+  int error = 0;
+  sec_t u;
+  sec_t v;
+
+  bool K[d][2][k] = {0};
+  bool S[d][k] = {0};
+  bool N[k] = {0};
+
+  unsigned char buf[1];
+  bool reduce;
+
+  size_t i;
+  size_t j;
+  size_t l;
+
+  //pick random u in (0,2k) and v in [0,k]
+  error |= RAND_bytes(&u, sizeof(u));
+  u = 1 + u % ((2*k) - 1);
+  error |= RAND_bytes(&v, sizeof(v));
+  v = v % (k+1);
+
+  for(i = 0; i < d; ++i)
+  {
+    for(j = 0; j < 1; ++j)
+    {
+      for(l = v; l < k; ++l)
+      {
+        error |= RAND_bytes(buf, sizeof(buf));
+        //pick a random bit
+        K[i][j][l] = (*buf) & ((sizeof(unsigned char)*8)-1);
+      }
+    }
+
+    for(j = 0; j <= 2*i; ++j)
+    {
+      error |= RAND_bytes(buf, sizeof(buf));
+      K[i][!fortuneI(secret, i)][j] = (*buf) & ((sizeof(unsigned char)*8)-1);
+    }
+    K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
+    K[i][!fortuneI(secret, i)][2*i] = fortuneI(secret, i);
+
+    //S[i] should be a random k-bit number
+    for(j = 0; j < k; ++j)
+    {
+      error |= RAND_bytes(buf, sizeof(buf));
+      K[i][j][l] = (*buf) & ((sizeof(unsigned char)*8)-1);
+    }
+  }
+
+  if(error) //error if any random generations failed
+  {
+    debug("Error generating random bits\n");
+    error = -EBAD_GEN;
+    goto done;
+  }
+
+  //compute S's k-2 bit
+  reduce = 1;
+  S[d-1][k-2] = 0;
+  for(i = 0; i < d; ++i)
+  {
+    reduce ^= S[i][k-2] ^ K[i][0][k-2];
+  }
+  S[d-1][k-2] = reduce;
+
+  //compute S's k-1 bit
+  reduce = 1;
+  S[d-1][k-1] = 0;
+  for(i = 0; i < d; ++i)
+  {
+    reduce ^= S[i][k-1] ^ K[i][0][k-1];
+  }
+  S[d-1][k-1] = reduce;
+
+  //reduce and shift N
+  for(i = 0; i < d; ++i)
+  {
+    for(j = 0; j < k; ++j)
+    {
+      N[j] ^= S[i][j];
+    }
+  }
+  rol(N, sizeof(N), u);
+
+  //send N
+  if(write(socketfd, N, sizeof(N)) != sizeof(N))
+  {
+    debug("Couldn't write N\n");
+    error = -EBAD_WRITE;
+    goto done;
+  }
+
+  //do OTs
+  for(i = 0; i < d; ++i)
+  {
+  }
+
+  //return OTsend("abcd", "defg", 5, 0, socketfd);
+
+done:
+  debug("error:%d\n", error);
+  return error;
 }
 
+/**
+ *  @brief act as Bob in the protocol.
+ */
 int bob(sec_t secret, int socketfd)
 {
   debug("called bob() with secret %d with fd %d\n", secret, socketfd);
   unsigned char buf[32];
   return OTreceive(buf, sizeof(buf), false, 0, socketfd);
+}
+
+/**
+ *  @brief cyclic left shift a bit array by \p u.
+ *
+ *  \p n will be mutated.
+ *
+ *  @param n bit array to mutate by left shifting.
+ *  @param size, in bits, of \p n.
+ *  @param shift, ammount to shift \n by.
+ */
+void rol(bool n[], size_t size, size_t shift)
+{
+  size_t i;
+  bool highBit;
+  while(shift--)
+  {
+    highBit = n[size-1]; //save the highbit
+    for(i = size-1; i; --i)
+    {
+      n[i] = n[i-1];
+    }
+    n[0] = highBit;
+  }
 }
