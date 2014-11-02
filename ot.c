@@ -2,11 +2,15 @@
  *  Oblivious transfer protocol.
  *
  *  Protocol implementation.
- *  -# Client says hello: "OT#i", where `i' specifies this is the little-endian
+ *  -# Client says hello: "OT#i", where 'i' specifies this is the little-endian
  *     binary representing this is the ith OT preformed.
  *  -# Server sends (K0, K1): two public keys
  *  -# Client sends Ck: a padded symmetric key encrypted under either K0 or K1.
  *  -# Server sends (C0, C1) : the symmetric encryption of secrets 0 and 1.
+ *
+ *  The public key encryption must not have any structured padding(e.g. PKCS#1
+ *  or OAEP) otherwise the server could detect which secret the client is
+ *  requesting.
  */
 
 #include "ot.h"
@@ -16,6 +20,7 @@
 
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/aes.h>
 
 /**
  *  Constants.
@@ -24,20 +29,30 @@
  *  HELLO_MSG the initial text of a hello message, without the sequence number.
  *  HELLO_SIZE the number of characters for a hello message.
  *  PUB_BITS the number of bits to use for public keys.
+ *  SERIAL_SIZE the number of bytes to represent a serialized public key.
+ *  SYM_SIZE the number of bytes use for symmetric keys.
  */
 #define BUF_MAX 512
 #define HELLO_MSG "OT#"
 #define HELLO_SIZE sizeof(HELLO_MSG) - 1 + sizeof(seq_t) //don't count null
 #define PUB_BITS 1024
+#define SERIAL_SIZE 140
+#define SYM_SIZE AES_BLOCK_SIZE
 
 /**
+ *  Errors.
+ *
  *  EBAD_HELLO error when the hello message is bad.
  *  EBAD_GEN error when generating a public key.
  *  EBAD_SEND error when sending a public key.
+ *  EBAD_READ error when reading the encrypted symmetric key.
+ *  EBAD_DECRYPT error when decrypting under the private key.
  */
 #define EBAD_HELLO 2
 #define EBAD_GEN 3
 #define EBAD_SEND 4
+#define EBAD_READ 5
+#define EBAD_DECRYPT 6
 
 static int sendPubicKeys(RSA *, RSA *, int);
 
@@ -72,11 +87,14 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   RSA *k0 = NULL;
   RSA *k1 = NULL;
 
-  count = read(socketfd, buf, BUF_MAX);
+  unsigned char symKey0[PUB_BITS/8];
+  unsigned char symKey1[PUB_BITS/8];
+
   //check hello length
-  if(count < HELLO_SIZE)
+  if((count = read(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE);
   {
-    return -EBAD_HELLO;
+    error = -EBAD_HELLO;
+    goto done;
   }
 
   //check hello message
@@ -114,6 +132,25 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   {
     error = -EBAD_SEND;
     goto done;
+  }
+
+  //read for the encrypted symmetric key
+  if((count = read(socketfd, buf, BUF_MAX)) < SYM_SIZE)
+  {
+    error = -EBAD_READ;
+    goto done;
+  }
+
+  //decrypt under both private keys for two possible symmetric keys
+  if(RSA_private_decrypt(RSA_SIZE(k0), buf, symKey0, k0, RSA_NO_PADDING) <
+      PUB_BITS / 8)
+  {
+    error = -EBAD_DECRYPT;
+  }
+  if(RSA_private_decrypt(RSA_SIZE(k0), buf, symKey1, k1, RSA_NO_PADDING) <
+      PUB_BITS / 8)
+  {
+    error = -EBAD_DECRYPT;
   }
 
 done:
@@ -169,18 +206,11 @@ static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
   int count0 = i2d_RSAPublicKey(k0, &buf0);
   int count1 = i2d_RSAPublicKey(k1, &buf1);
 
-  //heuristic for checking if serialization failed
-  if(count0 < (PUB_BITS/8) || count1 < (PUB_BITS/8))
+  //check serialization lengths
+  if(count0 != SERIAL_SIZE || count1 != SERIAL_SIZE)
   {
     return -1;
   }
-
-  //write the length
-  if(write(fd, &count0, sizeof(count0)) != sizeof(count0))
-  {
-    return -2;
-  }
-  return 0;
 
   //write keys
   if(write(fd, buf0, count0) != count0 || write(fd, buf1, count1) != count1)
@@ -189,6 +219,5 @@ static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
   }
 
   //how are buf0 and buf1 freed?
-
   return 0;
 }
