@@ -67,9 +67,11 @@
 /**
  *  EBAD_GEN error when random number generation fails.
  *  EBAD_WRITE error when writing fails.
+ *  EBAD_OT error if an OT fails.
  */
 #define EBAD_GEN 2
 #define EBAD_WRITE 3
+#define EBAD_OT 4
 
 #define fortuneI(f, i) ((f >> i) & 01)
 
@@ -80,7 +82,9 @@
   #define debug
 #endif //DEBUG
 
-void rol(bool [], size_t, size_t);
+static void rol(bool [], size_t, size_t);
+static void pack(bool [], unsigned char [], size_t);
+static unsigned char boolToChar(bool *);
 
 /**
  *  @brief act as Alice in the protocol.
@@ -98,6 +102,9 @@ int alice(sec_t secret, int socketfd)
   bool K[d][2][k] = {0};
   bool S[d][k] = {0};
   bool N[k] = {0};
+
+  unsigned char packedSecret0[SYM_SIZE];
+  unsigned char packedSecret1[SYM_SIZE];
 
   unsigned char buf[1];
   bool reduce;
@@ -186,6 +193,15 @@ int alice(sec_t secret, int socketfd)
   //do OTs
   for(i = 0; i < d; ++i)
   {
+    //pack
+    pack(K[i][0], packedSecret0, k);
+    pack(K[i][1], packedSecret1, k);
+    if(OTsend(packedSecret0, packedSecret1, sizeof(packedSecret0),i, socketfd))
+    {
+      debug("OTsend() failed on i=%d\n", i);
+      error = -EBAD_OT;
+      goto done;
+    }
   }
 
   //return OTsend("abcd", "defg", 5, 0, socketfd);
@@ -214,7 +230,7 @@ int bob(sec_t secret, int socketfd)
  *  @param size, in bits, of \p n.
  *  @param shift, ammount to shift \n by.
  */
-void rol(bool n[], size_t size, size_t shift)
+static void rol(bool n[], size_t size, size_t shift)
 {
   size_t i;
   bool highBit;
@@ -227,4 +243,43 @@ void rol(bool n[], size_t size, size_t shift)
     }
     n[0] = highBit;
   }
+}
+
+/**
+ *  @brief pack a bool array into a blob.
+ *
+ *  @param a the bool array to read data from.
+ *  @param b the char array to pack the data into.
+ *  @param len the size, in bits, of a.
+ */
+static void pack(bool a[], unsigned char b[], size_t len)
+{
+  size_t i;
+
+  for(i = 0; i < (len/sizeof(unsigned char)); ++i)
+  {
+    b[i] = boolToChar(a+(8*i));
+  }
+}
+
+/**
+ *  @brief turn an 8 element bool array into a single unsigned char.
+ *
+ *  No bounds checking is preformed.
+ *
+ *  @param in bool array to read.
+ *  @return packed unsigned char of \p in[0..7].
+ */
+static unsigned char boolToChar(bool *in)
+{
+  unsigned char out;
+  out = in[0]      |
+        in[1] << 1 |
+        in[2] << 2 |
+        in[3] << 3 |
+        in[4] << 4 |
+        in[5] << 5 |
+        in[6] << 6 |
+        in[7] << 7 ;
+  return out;
 }
