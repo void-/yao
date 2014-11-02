@@ -52,12 +52,16 @@
  *  EBAD_SEND error when sending a public key.
  *  EBAD_READ error when reading the encrypted symmetric key.
  *  EBAD_DECRYPT error when decrypting under the private key.
+ *  EBAD_TRANSFER error when writing either secret.
+ *  EBAD_DERIVE error when deriving the symmetric key from plaintext.
  */
 #define EBAD_HELLO 2
 #define EBAD_GEN 3
 #define EBAD_SEND 4
 #define EBAD_READ 5
 #define EBAD_DECRYPT 6
+#define EBAD_TRANSFER 7
+#define EBAD_DERIVE 8
 
 static int sendPubicKeys(RSA *, RSA *, int);
 
@@ -93,8 +97,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   RSA *k0 = NULL;
   RSA *k1 = NULL;
 
-  unsigned char symKey0[PUB_BITS/8];
-  unsigned char symKey1[PUB_BITS/8];
+  unsigned char decryptBuffer[PUB_BITS/8];
+
+  AES_KEY symKey0;
+  AES_KEY symKey1;
 
   //check hello length
   if((count = read(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE)
@@ -155,17 +161,48 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //decrypt under both private keys for two possible symmetric keys
-  if(RSA_private_decrypt(RSA_size(k0), buf, symKey0, k0, RSA_NO_PADDING) <
-      PUB_BITS / 8)
+  if(RSA_private_decrypt(RSA_size(k0), buf, decryptBuffer, k0,
+      RSA_NO_PADDING) < PUB_BITS / 8)
   {
     debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
+    goto done;
   }
-  if(RSA_private_decrypt(RSA_size(k0), buf, symKey1, k1, RSA_NO_PADDING) <
-      PUB_BITS / 8)
+  if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey0))
+  {
+    debug("couldn't derive symmetric key0\n");
+    error = -EBAD_DERIVE;
+    goto done;
+  }
+
+  if(RSA_private_decrypt(RSA_size(k0), buf, decryptBuffer, k1,
+      RSA_NO_PADDING) < PUB_BITS / 8)
   {
     debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
+    goto done;
+  }
+  if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey1))
+  {
+    debug("couldn't derive symmetric key1\n");
+    error = -EBAD_DERIVE;
+    goto done;
+  }
+
+  //encrypt and write both secrets
+  AES_encrypt(secret0, buf, &symKey0);
+  if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
+  {
+    debug("Couldn't write secret0 \n");
+    error = -EBAD_TRANSFER;
+    goto done;
+  }
+  AES_encrypt(secret1, buf, &symKey0);
+  if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
+  {
+    debug("Couldn't write secret1 \n");
+    error = -EBAD_TRANSFER;
+    goto done;
   }
 
 done:
@@ -178,6 +215,7 @@ done:
   {
     RSA_free(k1);
   }
+  debug("error:%d\n");
   return error;
 }
 
