@@ -216,6 +216,10 @@ done:
 
 /**
  *  @brief act as Bob in the protocol.
+ *
+ *  @param secret the secret to compare in the protocol.
+ *  @param socketfd file descriptor to read and write during the protocol.
+ *  @return non-zero on failure, 1 if a >= b, 0 if b > a.
  */
 int bob(sec_t secret, int socketfd)
 {
@@ -248,6 +252,20 @@ int bob(sec_t secret, int socketfd)
   }
 
   //lookAt r = N
+  count = 0;
+  for(i = sizeof(N) - 1; i; --i)
+  {
+    debug("%d", N[i]);
+    //apply a bad heuristic
+    count += (N[i] == 0);
+    if(count > 2)
+    {
+      break;
+    }
+  }
+
+  //apply bad heuristic again
+  error = (N[i-1] == 1);
 
 done:
   debug("error: %d", error);
