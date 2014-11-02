@@ -126,9 +126,8 @@ int client(char *host, int portno)
   int error;
   struct sockaddr_in servAddr;
   int socketDesc = socket(PF_INET, SOCK_STREAM, 0);
-  int connfd;
 
-  debug("Created a socket %d", socketDesc);
+  debug("Created a socket %d\n", socketDesc);
 
   if(socketDesc < 0)
   {
@@ -144,20 +143,17 @@ int client(char *host, int portno)
   servAddr.sin_port = htons(portno);
 
   //make a connection
-  if((connfd = connect(socketDesc, (struct sockaddr *) &servAddr,
-      sizeof(servAddr))) < 0)
+  if(connect(socketDesc, (struct sockaddr *) &servAddr, sizeof(servAddr)) < 0)
   {
     debug("could not get a connection\n");
     error = -2;
     goto done;
   }
 
-  debug("accepted a connection with fd %d\n", connfd);
-
-  error = bob(secret, connfd);
+  debug("accepted a connection with fd %d\n", socketDesc);
+  error = bob(secret, socketDesc);
 
 done:
   close(socketDesc);
-  close(connfd);
   return error;
 }
