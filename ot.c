@@ -16,7 +16,12 @@
 #include "ot.h"
 #include <unistd.h>
 
-#include <stdio.h>
+#ifdef DEBUG
+  #include <stdio.h>
+  #define debug printf
+#else
+  #define debug
+#endif //DEBUG
 
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
@@ -78,6 +83,7 @@ static int sendPubicKeys(RSA *, RSA *, int);
 int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     size_t size, seq_t no, int socketfd)
 {
+  debug("OTsend()#%d\n", no);
   unsigned char buf[BUF_MAX];
 
   ssize_t count;
@@ -91,8 +97,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   unsigned char symKey1[PUB_BITS/8];
 
   //check hello length
-  if((count = read(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE);
+  if((count = read(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE)
   {
+    debug("count < HELLO_SIZE? %d\n", count < HELLO_SIZE);
+    debug("Hello was wrong length; got %d, expected %d\n", count, HELLO_SIZE);
     error = -EBAD_HELLO;
     goto done;
   }
@@ -112,6 +120,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
   if(!success)
   {
+    debug("Hello msg/Sequence number didn't match\n");
     error = -EBAD_HELLO;
     goto done;
   }
@@ -119,17 +128,20 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   //generate and send two public keys
   if((k0 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
   {
+    debug("Couldn't generate a public key\n");
     error = -EBAD_GEN;
     goto done;
   }
   if((k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
   {
+    debug("Couldn't generate a public key\n");
     error = -EBAD_GEN;
     goto done;
   }
 
   if(sendPubicKeys(k0, k1, socketfd))
   {
+    debug("Couldn't send public keys\n");
     error = -EBAD_SEND;
     goto done;
   }
@@ -137,19 +149,22 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   //read for the encrypted symmetric key
   if((count = read(socketfd, buf, BUF_MAX)) < SYM_SIZE)
   {
+    debug("Couldn't read symmetric key\n");
     error = -EBAD_READ;
     goto done;
   }
 
   //decrypt under both private keys for two possible symmetric keys
-  if(RSA_private_decrypt(RSA_SIZE(k0), buf, symKey0, k0, RSA_NO_PADDING) <
+  if(RSA_private_decrypt(RSA_size(k0), buf, symKey0, k0, RSA_NO_PADDING) <
       PUB_BITS / 8)
   {
+    debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
   }
-  if(RSA_private_decrypt(RSA_SIZE(k0), buf, symKey1, k1, RSA_NO_PADDING) <
+  if(RSA_private_decrypt(RSA_size(k0), buf, symKey1, k1, RSA_NO_PADDING) <
       PUB_BITS / 8)
   {
+    debug("Couldn't decrypt with k0\n");
     error = -EBAD_DECRYPT;
   }
 
@@ -201,6 +216,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
  */
 static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
 {
+  debug("sending public keys\n");
   unsigned char *buf0;
   unsigned char *buf1;
   int count0 = i2d_RSAPublicKey(k0, &buf0);
