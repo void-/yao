@@ -14,11 +14,13 @@
 
 /**
  *  BUF_MAX the maximum number of bytes to read at once from a socket.
- *  HELL_SIZE the number of characters for a hello message.
+ *  HELLO_MSG the initial text of a hello message, without the sequence number.
+ *  HELLO_SIZE the number of characters for a hello message.
  */
 #define BUF_MAX 512
 #define HELLO_MSG "OT#"
 #define HELLO_SIZE sizeof(HELLO_MSG) - 1 + sizeof(seq_t) //don't count null
+#define PUB_BITS 1024
 
 #define EBAD_HELLO 2
 
@@ -46,11 +48,15 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 {
   unsigned char buf[BUF_MAX];
 
-  ssize_t count = read(socketfd, buf, BUF_MAX);
+  ssize_t count;
   bool success = true;
   int error = 0;
   size_t i;
+  RSA k0;
+  RSA k1;
+  BIGNUM e;
 
+  count = read(socketfd, buf, BUF_MAX);
   //check hello length
   if(count < HELLO_SIZE)
   {
@@ -76,7 +82,16 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto done;
   }
 
+  //initialize the public exponent
+  BN_init(&e);
+  BN_set_word(&e, RSA_F4);
+
+  //generate and send two public keys
+  RSA_generate_key_ex(&k0, PUB_BITS, &e, NULL);
+  RSA_generate_key_ex(&k1, PUB_BITS, &e, NULL);
+
   done:
+    bn_free(&e);
     return error;
 }
 
