@@ -12,6 +12,9 @@
 #include "ot.h"
 #include <unistd.h>
 
+#include <openssl/rsa.h>
+#include <openssl/bn.h>
+
 /**
  *  BUF_MAX the maximum number of bytes to read at once from a socket.
  *  HELLO_MSG the initial text of a hello message, without the sequence number.
