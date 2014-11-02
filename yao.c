@@ -100,8 +100,8 @@ int alice(sec_t secret, int socketfd)
 {
   debug("called alice() with secret %d with fd %d\n", secret, socketfd);
   int error = 0;
-  sec_t u;
-  sec_t v;
+  size_t u;
+  size_t v;
 
   bool K[d][2][k] = {0};
   bool S[d][k] = {0};
@@ -124,22 +124,26 @@ int alice(sec_t secret, int socketfd)
   error |= RAND_bytes(&v, sizeof(v));
   v = v % (k+1);
 
+  debug("u:%d, v:%d\n",u,v);
+
+  debug("alice(): beggining to fill matrix\n");
   for(i = 0; i < d; ++i)
   {
-    for(j = 0; j < 1; ++j)
+    for(j = 0; j < 2; ++j)
     {
       for(l = v; l < k; ++l)
       {
         error |= RAND_bytes(buf, sizeof(buf));
         //pick a random bit
-        K[i][j][l] = (*buf) & ((sizeof(unsigned char)*8)-1);
+        K[i][j][l] = (*buf) & 01;
       }
     }
+    debug("patterned higher matrix\n");
 
     for(j = 0; j <= 2*i; ++j)
     {
       error |= RAND_bytes(buf, sizeof(buf));
-      K[i][!fortuneI(secret, i)][j] = (*buf) & ((sizeof(unsigned char)*8)-1);
+      K[i][!fortuneI(secret, i)][j] = (*buf) & 01;
     }
     K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
     K[i][!fortuneI(secret, i)][2*i] = fortuneI(secret, i);
@@ -148,15 +152,16 @@ int alice(sec_t secret, int socketfd)
     for(j = 0; j < k; ++j)
     {
       error |= RAND_bytes(buf, sizeof(buf));
-      K[i][j][l] = (*buf) & ((sizeof(unsigned char)*8)-1);
+      S[i][j] = (*buf) & 01;
     }
   }
+  debug("alice(): filled matrix\n");
 
   if(error) //error if any random generations failed
   {
     debug("Error generating random bits\n");
     error = -EBAD_GEN;
-    goto done;
+    //goto done;
   }
 
   //compute S's k-2 bit
@@ -176,6 +181,7 @@ int alice(sec_t secret, int socketfd)
     reduce ^= S[i][k-1] ^ K[i][0][k-1];
   }
   S[d-1][k-1] = reduce;
+  debug("computed higher order bits\n");
 
   //reduce and shift N
   for(i = 0; i < d; ++i)
@@ -185,7 +191,9 @@ int alice(sec_t secret, int socketfd)
       N[j] ^= S[i][j];
     }
   }
+  debug("Reduced N\n");
   rol(N, sizeof(N), u);
+  debug("rol()'d N\n");
 
   //send N
   if((count = write(socketfd, N, sizeof(N))) != sizeof(N))
