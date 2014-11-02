@@ -15,9 +15,11 @@
 #include <stdio.h>
 
 #include <openssl/rsa.h>
-#include <openssl/bn.h>
+#include <openssl/x509.h>
 
 /**
+ *  Constants.
+ *
  *  BUF_MAX the maximum number of bytes to read at once from a socket.
  *  HELLO_MSG the initial text of a hello message, without the sequence number.
  *  HELLO_SIZE the number of characters for a hello message.
@@ -30,8 +32,14 @@
 
 /**
  *  EBAD_HELLO error when the hello message is bad.
+ *  EBAD_GEN error when generating a public key.
+ *  EBAD_SEND error when sending a public key.
  */
 #define EBAD_HELLO 2
+#define EBAD_GEN 3
+#define EBAD_SEND 4
+
+static int sendPubicKeys(RSA *, RSA *, int);
 
 /**
  *  @brief send one of two secrets via an oblivious transfer given a socket.
@@ -91,8 +99,22 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //generate and send two public keys
-  k0 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL);
-  k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL);
+  if((k0 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
+  {
+    error = -EBAD_GEN;
+    goto done;
+  }
+  if((k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
+  {
+    error = -EBAD_GEN;
+    goto done;
+  }
+
+  if(sendPubicKeys(k0, k1, socketfd))
+  {
+    error = -EBAD_SEND;
+    goto done;
+  }
 
 done:
   //deallocate keys
@@ -126,4 +148,47 @@ done:
 int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     int socketfd)
 {
+}
+
+/**
+ *  @brief given two public keys, serialize and write them to a socket.
+ *
+ *  NOTES:
+ *  <p>
+ *  - How are the serialized keys freed?
+ *
+ *  @param k0 pointer to RSA key to send.
+ *  @param k1 pointer to RSA key to send.
+ *  @param fd file descriptor to write to.
+ *  @return non-zero on failure.
+ */
+static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
+{
+  unsigned char *buf0;
+  unsigned char *buf1;
+  int count0 = i2d_RSAPublicKey(k0, &buf0);
+  int count1 = i2d_RSAPublicKey(k1, &buf1);
+
+  //heuristic for checking if serialization failed
+  if(count0 < (PUB_BITS/8) || count1 < (PUB_BITS/8))
+  {
+    return -1;
+  }
+
+  //write the length
+  if(write(fd, &count0, sizeof(count0)) != sizeof(count0))
+  {
+    return -2;
+  }
+  return 0;
+
+  //write keys
+  if(write(fd, buf0, count0) != count0 || write(fd, buf1, count1) != count1)
+  {
+    return -3;
+  }
+
+  //how are buf0 and buf1 freed?
+
+  return 0;
 }
