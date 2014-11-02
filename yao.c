@@ -1,8 +1,8 @@
 /**
- *  pseudo-code.
- *
+ *  Pseudo-code.
+ *  @code
  *  Let d = 32 //number of bits to represent fortunes
- *  Let k = 1024 //number of bits for public key in OT
+ *  Let k = 128 //number of bits for symmetric key in OT
  *
  *  Determine fortune from argv
  *  Determine from argv if we are Alice or Bob.
@@ -45,6 +45,7 @@
  *    r = N ^ reduce(xor, map(OTreceive, fortune[0..d-1]))
  *
  *    look at r to determine if Alice's fortune > Bob's fortune
+ *  @endcode
  */
 int main(int argc, char **argv)
 {
