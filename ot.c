@@ -98,7 +98,6 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   RSA *k1 = NULL;
 
   unsigned char decryptBuffer[PUB_BITS/8];
-
   AES_KEY symKey0;
   AES_KEY symKey1;
 
@@ -238,6 +237,33 @@ done:
 int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     int socketfd)
 {
+  unsigned char buf[BUF_MAX];
+  int error;
+  size_t i;
+
+  //copy hello into write buffer with null terminator
+  for(i = 0; i < (sizeof(HELLO_MSG) - 1); ++i)
+  {
+    buf[i] = HELLO_MSG[i];
+  }
+
+  //create sequence number; NOTE: endianness dependant
+  for(; i < HELLO_SIZE; ++i)
+  {
+    buf[i] = ((unsigned char *)(&no))[i - sizeof(HELLO_MSG)];
+  }
+
+  //write hello
+  if(write(socketfd, buf, HELLO_SIZE) != HELLO_SIZE)
+  {
+    debug("Couldn't write hello; i=%d\n", i);
+    error = -EBAD_HELLO;
+    goto done;
+  }
+
+done:
+  debug("error:%d\n");
+  return error;
 }
 
 /**
