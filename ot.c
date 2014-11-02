@@ -1,6 +1,25 @@
-#include "ot.h"
+/**
+ *  Oblivious transfer protocol.
+ *
+ *  Protocol implementation.
+ *  -# Client says hello: "OT#i", where `i' specifies this is the ith OT
+ *       preformed.
+ *  -# Server sends (K0, K1): two public keys
+ *  -# Client sends Ck: a padded symmetric key encrypted under either K0 or K1.
+ *  -# Server sends (C0, C1) : the symmetric encryption of secrets 0 and 1.
+ */
 
-#define CLIENT_HELLO "OT#"
+#include "ot.h"
+#include <unistd.h>
+
+/**
+ *  BUF_MAX the maximum number of bytes to read at once from a socket.
+ *  HELL_SIZE the number of characters for the base of a hello message.
+ */
+#define BUF_MAX 512
+#define HELLO_SIZE 3
+
+#define EBAD_HELLO 2
 
 /**
  *  @brief send one of two secrets via an oblivious transfer given a socket.
@@ -24,6 +43,17 @@
 int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     size_t size, uint16_t no, int socketfd)
 {
+  unsigned char buf[BUF_MAX];
+
+  ssize_t count = read(socketfd, buf, BUF_MAX);
+  //hello must be at least 4 chars: "OT#_"
+  if(count <= HELLO_SIZE || ((count > HELLO_SIZE) &&
+      (buf[0] != 'O' || buf[1] != 'T' || buf[2] != '#')))
+  {
+    return -EBAD_HELLO;
+  }
+
+  return 0;
 }
 
 /**
