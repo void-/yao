@@ -123,5 +123,41 @@ done:
  */
 int client(char *host, int portno)
 {
-  return 0;
+  int error;
+  struct sockaddr_in servAddr;
+  int socketDesc = socket(PF_INET, SOCK_STREAM, 0);
+  int connfd;
+
+  debug("Created a socket %d", socketDesc);
+
+  if(socketDesc < 0)
+  {
+    debug("couldnt get a client socket\n");
+    error = -1;
+    goto done;
+  }
+
+  memset((unsigned char *) &servAddr, 0, sizeof(servAddr));
+
+  servAddr.sin_addr.s_addr = inet_addr(host);
+  servAddr.sin_family = PF_INET;
+  servAddr.sin_port = htons(portno);
+
+  //make a connection
+  if((connfd = connect(socketDesc, (struct sockaddr *) &servAddr,
+      sizeof(servAddr))) < 0)
+  {
+    debug("could not get a connection\n");
+    error = -2;
+    goto done;
+  }
+
+  debug("accepted a connection with fd %d\n", connfd);
+
+  error = bob(secret, connfd);
+
+done:
+  close(socketDesc);
+  close(connfd);
+  return error;
 }
