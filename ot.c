@@ -340,7 +340,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   //receive both encrypted secrets
-  if((count = read_exactly(socketfd, buf, 2*RSA_size(k))) < 2*RSA_size(k))
+  if((count = read_exactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
   {
     debug("received too few bytes from transfer; count = %d", count);
     error = -EBAD_TRANSFER;
@@ -434,9 +434,11 @@ ssize_t read_exactly(int fd, void *buf, size_t count)
   ssize_t success;
   size_t left = count;
   size_t total = 0;
+  debug("trying to read exactly %d bytes\n", count);
   while(total < count)
   {
     success = read(fd, buf+total, left);
+    debug("read %d bytes\n", success);
     if(success < 0)
     {
       return -1;
