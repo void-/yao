@@ -71,7 +71,7 @@
 #define EBAD_ENCRYPT 11
 #define EBAD_SIZE 12
 
-static int sendPubicKeys(RSA *, RSA *, int);
+static int sendPublicKeys(RSA *, RSA *, int);
 ssize_t read_exactly(int, void *, size_t);
 
 /**
@@ -153,7 +153,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  if(sendPubicKeys(k0, k1, socketfd))
+  if(sendPublicKeys(k0, k1, socketfd))
   {
     debug("Couldn't send public keys\n");
     error = -EBAD_SEND;
@@ -367,16 +367,13 @@ rec_done:
  *  @param fd file descriptor to write to.
  *  @return non-zero on failure.
  */
-static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
+static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
 {
   debug("sending public keys\n");
-  unsigned char *buf0;
-  unsigned char *buf1;
-  unsigned char **buf0Ptr = &buf0;
-  unsigned char **buf1Ptr = &buf0;
-  debug("serializing keys\n");
-  int count0 = i2d_RSAPublicKey(k0, buf0Ptr);
-  int count1 = i2d_RSAPublicKey(k1, buf1Ptr);
+  unsigned char buf[SERIAL_SIZE];
+  unsigned char *bufPtr = buf;
+  debug("serializing key\n");
+  int count = i2d_RSAPublicKey(k0, &bufPtr);
   debug("serialization complete\n");
 
   size_t i;
@@ -385,29 +382,19 @@ static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
   //{
   //  putchar(buf0[i]);
   //}
-  ////hexdump
-  //for(i = 0; i < SERIAL_SIZE; ++i)
-  //{
-  //  putchar(buf1[i]);
-  //}
 
   //check serialization lengths
-  if(count0 != SERIAL_SIZE || count1 != SERIAL_SIZE)
+  if(count != SERIAL_SIZE)
   {
     debug("Serialized the wrong number of bytes\n");
     return -1;
   }
-  debug("count0:%d, count1:%d\n", count0, count1);
+  debug("count:%d\n", count);
 
   //write keys
-  if((i = write(fd, buf0, count0)) != count0)
+  if((i = write(fd, buf, count)) != count)
   {
     debug("Failed to write key 1; wrote %d\n", i);
-    return -3;
-  }
-  if((i = write(fd, buf1, count1)) != count1)
-  {
-    debug("Failed to write key 2; wrote %d\n", i);
     return -3;
   }
 
