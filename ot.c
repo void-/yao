@@ -256,7 +256,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   AES_KEY symKey;
   unsigned char keyBuffer[PUB_BITS/8];
   //unsigned char *tmpPtr = (buf+(SERIAL_SIZE * which));
-  unsigned const char *const tmpPtr = buf;
+  unsigned const char *tmpPtr = buf;
 
   //must have enough bytes
   if(size < SYM_SIZE)
@@ -294,9 +294,14 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  //hexdump
+  for(i = 0; i < SERIAL_SIZE; ++i)
+  {
+    putchar(buf[i]);
+  }
+
   //deserialize either public key
-  if((k = d2i_RSAPublicKey(NULL, (const unsigned char **) &tmpPtr,
-      SERIAL_SIZE)) == NULL)
+  if((k = d2i_RSAPublicKey(NULL,  &(tmpPtr), (long) SERIAL_SIZE)) == NULL)
   {
     debug("couldn't deserialize key %d properly\n", which);
     error = -EBAD_DECODE;
@@ -367,23 +372,42 @@ static int sendPubicKeys(RSA *k0, RSA *k1, int fd)
   debug("sending public keys\n");
   unsigned char *buf0;
   unsigned char *buf1;
-  int count0 = i2d_RSAPublicKey(k0, &buf0);
-  int count1 = i2d_RSAPublicKey(k1, &buf1);
+  unsigned char **buf0Ptr = &buf0;
+  unsigned char **buf1Ptr = &buf0;
+  debug("serializing keys\n");
+  int count0 = i2d_RSAPublicKey(k0, buf0Ptr);
+  int count1 = i2d_RSAPublicKey(k1, buf1Ptr);
+  debug("serialization complete\n");
+
+  size_t i;
+  //hexdump
+  //for(i = 0; i < SERIAL_SIZE; ++i)
+  //{
+  //  putchar(buf0[i]);
+  //}
+  ////hexdump
+  //for(i = 0; i < SERIAL_SIZE; ++i)
+  //{
+  //  putchar(buf1[i]);
+  //}
 
   //check serialization lengths
   if(count0 != SERIAL_SIZE || count1 != SERIAL_SIZE)
   {
+    debug("Serialized the wrong number of bytes\n");
     return -1;
   }
   debug("count0:%d, count1:%d\n", count0, count1);
 
   //write keys
-  if(write(fd, buf0, count0) != count0)
+  if((i = write(fd, buf0, count0)) != count0)
   {
+    debug("Failed to write key 1; wrote %d\n", i);
     return -3;
   }
-  if(write(fd, buf1, count1) != count1)
+  if((i = write(fd, buf1, count1)) != count1)
   {
+    debug("Failed to write key 2; wrote %d\n", i);
     return -3;
   }
 
