@@ -418,7 +418,16 @@ static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
 }
 
 /**
- *  read_exactly() reads exactly \p count bytes until error.
+ *  \brief given a file descriptor read exactly \p count bytes or until error.
+ *
+ *  NOTE:
+ *  - blocks until all bytes are read
+ *  - no timeout on reading from \p fd.
+ *
+ *  @param fd file descriptor to read from.
+ *  @param buf buffer to write to.
+ *  @param count number of bytes to read from fd.
+ *  @return the number of bytes read or -1 on failure.
  */
 ssize_t read_exactly(int fd, void *buf, size_t count)
 {
