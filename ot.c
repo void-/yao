@@ -161,7 +161,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //read for the encrypted symmetric key
-  if((count = read_exactly(socketfd, buf, SYM_SIZE)) < SYM_SIZE)
+  if((count = read_exactly(socketfd, buf, PUB_BITS/8)) < PUB_BITS/8)
   {
     debug("Couldn't read symmetric key, read %d\n", count);
     error = -EBAD_READ;
@@ -255,8 +255,8 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   RSA *k;
   AES_KEY symKey;
   unsigned char keyBuffer[PUB_BITS/8];
-  //unsigned char *tmpPtr = (buf+(SERIAL_SIZE * which));
-  unsigned const char *tmpPtr = buf;
+  unsigned const char *tmpPtr = (buf+(SERIAL_SIZE * which));
+  //unsigned const char *tmpPtr = buf;
 
   //must have enough bytes
   if(size < SYM_SIZE)
@@ -265,7 +265,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  //copy hello into write buffer with null terminator
+  //copy hello into write buffer without null terminator
   for(i = 0; i < (sizeof(HELLO_MSG) - 1); ++i)
   {
     buf[i] = HELLO_MSG[i];
@@ -294,11 +294,11 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  //hexdump
-  for(i = 0; i < SERIAL_SIZE; ++i)
-  {
-    putchar(buf[i]);
-  }
+  ////hexdump
+  //for(i = 0; i < SERIAL_SIZE; ++i)
+  //{
+  //  putchar(buf[i]);
+  //}
 
   //deserialize either public key
   if((k = d2i_RSAPublicKey(NULL,  &(tmpPtr), (long) SERIAL_SIZE)) == NULL)
@@ -324,7 +324,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   //send encrypted symmetric key
-  if(write(socketfd, buf, RSA_size(k)) != RSA_size(k))
+  if(write(socketfd, buf, PUB_BITS/8) != PUB_BITS/8)
   {
     debug("Couldn't send encrypted symmetric key\n");
     error = -EBAD_SEND;
