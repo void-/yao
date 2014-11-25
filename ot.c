@@ -369,21 +369,14 @@ rec_done:
  */
 static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
 {
-  debug("sending public keys\n");
+  debug("sending k0\n");
   unsigned char buf[SERIAL_SIZE];
   unsigned char *bufPtr = buf;
-  debug("serializing key\n");
+  debug("serializing k0\n");
   int count = i2d_RSAPublicKey(k0, &bufPtr);
   debug("serialization complete\n");
 
-  size_t i;
-  //hexdump
-  //for(i = 0; i < SERIAL_SIZE; ++i)
-  //{
-  //  putchar(buf0[i]);
-  //}
-
-  //check serialization lengths
+  //check serialization length
   if(count != SERIAL_SIZE)
   {
     debug("Serialized the wrong number of bytes\n");
@@ -391,15 +384,36 @@ static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
   }
   debug("count:%d\n", count);
 
-  //write keys
+  size_t i;
+  //write k0
   if((i = write(fd, buf, count)) != count)
   {
     debug("Failed to write key 1; wrote %d\n", i);
+    return -2;
+  }
+  debug("k0 sent\n");
+
+  //serialize k1
+  bufPtr = buf;
+  debug("serializing k1\n");
+  count = i2d_RSAPublicKey(k1, &bufPtr);
+  debug("serialization complete\n");
+
+  if(count != SERIAL_SIZE)
+  {
+    debug("Serialized the wrong number of bytes\n");
     return -3;
   }
+  debug("count:%d\n", count);
 
-  //how are buf0 and buf1 freed?
-  debug("keys sent\n");
+  //write k1
+  if((i = write(fd, buf, count)) != count)
+  {
+    debug("Failed to write key 1; wrote %d\n", i);
+    return -4;
+  }
+  debug("k1 sent\n");
+
   return 0;
 }
 
