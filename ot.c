@@ -7,6 +7,7 @@
  *  -# Server sends (K0, K1): two public keys
  *  -# Client sends Ck: a padded symmetric key encrypted under either K0 or K1.
  *  -# Server sends (C0, C1) : the symmetric encryption of secrets 0 and 1.
+ *  -# Client sends goodbye: "FN#i", where 'i' is the ith OT preformed.
  *
  *  The public key encryption must not have any structured padding(e.g. PKCS#1
  *  or OAEP) otherwise the server could detect which secret the client is
@@ -33,6 +34,8 @@
  *  BUF_MAX the maximum number of bytes to read at once from a socket.
  *  HELLO_MSG the initial text of a hello message, without the sequence number.
  *  HELLO_SIZE the number of characters for a hello message.
+ *  GOODBYE_MSG the terminating message, without the sequence number.
+ *  GOODBYE_SIZE the number of characters for a goodbye message.
  *  PUB_BITS the number of bits to use for public keys.
  *  SERIAL_SIZE the number of bytes to represent a serialized public key.
  *  SYM_SIZE the number of bytes use for symmetric keys.
@@ -40,6 +43,8 @@
 #define BUF_MAX 512
 #define HELLO_MSG "OT#"
 #define HELLO_SIZE sizeof(HELLO_MSG) - 1 + sizeof(seq_t) //don't count null
+#define GOODBYE_MSG "FN#"
+#define GOODBYE_SIZE sizeof(GOODBYE_MSG) - 1 + sizeof(seq_t)
 #define PUB_BITS 1024
 #define SERIAL_SIZE 140
 #define SYM_SIZE AES_BLOCK_SIZE
@@ -58,6 +63,7 @@
  *  EBAD_DECODE error when deserializing a public key.
  *  EBAD_ENCRYPT error when encrypting under a public key.
  *  EBAD_SIZE error when not enough bytes for writing a secret.
+ *  EBAD_BYE error when the goodbye message is bad.
  */
 #define EBAD_HELLO 2
 #define EBAD_GEN 3
@@ -70,9 +76,12 @@
 #define EBAD_DECODE 10
 #define EBAD_ENCRYPT 11
 #define EBAD_SIZE 12
+#define EBAD_BYE 13
 
 static int sendPublicKeys(RSA *, RSA *, int);
-ssize_t read_exactly(int, void *, size_t);
+static ssize_t readExactly(int, void *, size_t);
+static int sendSeq(int, const char *, size_t, seq_t);
+static int getSeq(int, const char *, size_t, seq_t);
 
 /**
  *  @brief send one of two secrets via an oblivious transfer given a socket.
@@ -100,9 +109,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   unsigned char buf[BUF_MAX];
 
   ssize_t count;
-  bool success = true;
   int error = 0;
-  size_t i;
   RSA *k0 = NULL;
   RSA *k1 = NULL;
 
@@ -110,29 +117,8 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   AES_KEY symKey0;
   AES_KEY symKey1;
 
-  //check hello length
-  if((count = read_exactly(socketfd, buf, HELLO_SIZE)) < HELLO_SIZE)
-  {
-    debug("count < HELLO_SIZE? %d\n", count < HELLO_SIZE);
-    debug("Hello was wrong length; got %d, expected %d\n", count, HELLO_SIZE);
-    error = -EBAD_HELLO;
-    goto send_done;
-  }
-
-  //check hello message
-  for(i = 0; i < sizeof(HELLO_MSG); ++i)
-  {
-    success = success & (HELLO_MSG[i] == buf[i]);
-  }
-
-  //check sequence number; NOTE: endianness dependant
-  for(; i < HELLO_SIZE; ++i)
-  {
-    success = success &
-      (buf[i] == ((unsigned char *)(&no))[i - sizeof(HELLO_MSG)]);
-  }
-
-  if(!success)
+  //read and check the hello message
+  if(getSeq(socketfd, HELLO_MSG, sizeof(HELLO_MSG)-1, no))
   {
     debug("Hello msg/Sequence number didn't match\n");
     error = -EBAD_HELLO;
@@ -161,7 +147,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //read for the encrypted symmetric key
-  if((count = read_exactly(socketfd, buf, PUB_BITS/8)) < PUB_BITS/8)
+  if((count = readExactly(socketfd, buf, PUB_BITS/8)) < PUB_BITS/8)
   {
     debug("Couldn't read symmetric key, read %d\n", count);
     error = -EBAD_READ;
@@ -213,6 +199,14 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
+  //read and check the goodbye message
+  if(getSeq(socketfd, GOODBYE_MSG, sizeof(GOODBYE_MSG)-1, no))
+  {
+    debug("Goodbye msg/Sequence number didn't match\n");
+    error = -EBAD_BYE;
+    goto send_done;
+  }
+
 send_done:
   //deallocate keys
   if(k0 != NULL)
@@ -248,9 +242,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
 {
   debug("OTreceive()#%d\n", no);
   unsigned char buf[BUF_MAX];
-  int error;
-  size_t i;
-  size_t j;
+  int error = 0;
   ssize_t count;
   RSA *k;
   AES_KEY symKey;
@@ -265,29 +257,17 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  //copy hello into write buffer without null terminator
-  for(i = 0; i < (sizeof(HELLO_MSG) - 1); ++i)
-  {
-    buf[i] = HELLO_MSG[i];
-  }
-
-  //create sequence number; NOTE: endianness dependant
-  for(; i < HELLO_SIZE; ++i)
-  {
-    buf[i] = ((unsigned char *)(&no))[i - sizeof(HELLO_MSG)];
-  }
-
   //write hello
-  if(write(socketfd, buf, HELLO_SIZE) != HELLO_SIZE)
+  if(sendSeq(socketfd, HELLO_MSG, sizeof(HELLO_MSG)-1, no) != HELLO_SIZE)
   {
-    debug("Couldn't write hello; i=%d\n", i);
+    debug("Couldn't write hello;\n");
     error = -EBAD_HELLO;
     goto rec_done;
   }
 
   debug("trying to read a serialized key\n");
   //read serialized keys
-  if((count = read_exactly(socketfd, buf, 2*SERIAL_SIZE)) < 2*SERIAL_SIZE)
+  if((count = readExactly(socketfd, buf, 2*SERIAL_SIZE)) < 2*SERIAL_SIZE)
   {
     debug("couldn't read serialized public keys; read %d\n", count);
     error = -EBAD_RECEIVE;
@@ -340,7 +320,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   //receive both encrypted secrets
-  if((count = read_exactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
+  if((count = readExactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
   {
     debug("received too few bytes from transfer; count = %d", count);
     error = -EBAD_TRANSFER;
@@ -349,6 +329,14 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
 
   //decrypt either secret
   AES_decrypt(buf+(which*SYM_SIZE), output, &symKey);
+
+  //write goodbye
+  if(sendSeq(socketfd, GOODBYE_MSG, sizeof(GOODBYE_MSG)-1, no) != GOODBYE_SIZE)
+  {
+    debug("couldn't write goodbye, i=%d", no);
+    error = -EBAD_BYE;
+    goto rec_done;
+  }
 
 rec_done:
   debug("error:%d\n", error);
@@ -418,7 +406,86 @@ static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
 }
 
 /**
- *  \brief given a file descriptor read exactly \p count bytes or until error.
+ *  @brief send either the hello or goodbye message with the sequence number.
+ *
+ *  Write \p len bytes of \p msg to fd followed by the bytes of \p no.
+ *
+ *  NOTE: How the sequence number is written is endianness dependant.
+ *  Fortunately if both computers are little-endian, this isn't a problem, but
+ *  not something to be relied upon.
+ * 
+ *  @param fd file descriptor to write to.
+ *  @param msg string to write first.
+ *  @param len number of bytes of \p msg to write.
+ *  @param no the sequence number to write.
+ * 
+ *  @return number of bytes written or -1 on failure.
+ */
+static int sendSeq(int fd, const char *msg, size_t len, seq_t no)
+{
+  //buffer the write all at once
+  unsigned char buf[len+sizeof(seq_t)];
+  size_t i;
+
+  for(i = 0; i < len; ++i)
+  {
+    buf[i] = msg[i];
+  }
+
+  //create sequence number; NOTE: endianness dependant
+  for(i = 0; i < sizeof(no); ++i)
+  {
+    buf[len+i] = ((unsigned char *)(&no))[i];
+  }
+
+  return write(fd, buf, len+sizeof(seq_t));
+}
+
+/**
+ *  @brief read for a hello/goodbye message and verify its correctness.
+ *
+ *  NOTE: How the sequence number is read is endianness dependant. Fortunately
+ *  if both computers are little-endian, this isn't a problem, but not
+ *  something to be relied upon.
+ *
+ *  @param fd file descriptor to read from.
+ *  @param msg the message to check.
+ *  @param len the number of bytes from \p msg to check
+ *  @param no the sequence number.
+ *
+ *  @return non-zero on failure.
+ */
+static int getSeq(int fd, const char *msg, size_t len, seq_t no)
+{
+  unsigned char buf[len+sizeof(no)];
+  size_t count;
+  size_t i;
+  bool failure = false;
+
+  //check length
+  if((count = readExactly(fd, buf, len+sizeof(no))) < len+sizeof(no))
+  {
+    debug("seq wrong length; got %d, expected %d\n", count, len+sizeof(no));
+    return -1;
+  }
+
+  //check message
+  for(i = 0; i < len; ++i)
+  {
+    failure |= (msg[i] != buf[i]);
+  }
+
+  //check sequence number; NOTE: endianness dependant
+  for(i = 0; i < sizeof(no); ++i)
+  {
+    failure |= (buf[len + i] != ((unsigned char *)(&no))[i]);
+  }
+
+  return failure;
+}
+
+/**
+ *  @brief given a file descriptor read exactly \p count bytes or until error.
  *
  *  NOTE:
  *  - blocks until all bytes are read
@@ -429,7 +496,7 @@ static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
  *  @param count number of bytes to read from fd.
  *  @return the number of bytes read or -1 on failure.
  */
-ssize_t read_exactly(int fd, void *buf, size_t count)
+static ssize_t readExactly(int fd, void *buf, size_t count)
 {
   ssize_t success;
   size_t left = count;
