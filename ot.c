@@ -9,6 +9,8 @@
  *  -# Server sends (C0, C1) : the symmetric encryption of secrets 0 and 1.
  *  -# Client sends goodbye: "FN#i", where 'i' is the ith OT preformed.
  *
+ *  Use RSA with blinding to mitigate problems with the RSA modulus.
+ *
  *  The public key encryption must not have any structured padding(e.g. PKCS#1
  *  or OAEP) otherwise the server could detect which secret the client is
  *  requesting.
@@ -27,6 +29,7 @@
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <openssl/aes.h>
+#include <openssl/err.h>
 
 /**
  *  Constants.
@@ -155,10 +158,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //decrypt under both private keys for two possible symmetric keys
-  if(RSA_private_decrypt(RSA_size(k0), buf, decryptBuffer, k0,
-      RSA_NO_PADDING) < PUB_BITS / 8)
+  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k0,
+        RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k0\n");
+    debug("Couldn't decrypt with k0, got %d\n", count);
     error = -EBAD_DECRYPT;
     goto send_done;
   }
@@ -169,10 +172,12 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  if(RSA_private_decrypt(RSA_size(k0), buf, decryptBuffer, k1,
-      RSA_NO_PADDING) < PUB_BITS / 8)
+  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k1,
+        RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k0\n");
+    debug("Couldn't decrypt with k1, got %d\n", count);
+    ERR_load_crypto_strings();
+    debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_DECRYPT;
     goto send_done;
   }
@@ -295,10 +300,13 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_GEN;
     goto rec_done;
   }
-  if((count = RSA_public_encrypt(RSA_size(k), keyBuffer, buf, k,
+  if((count = RSA_public_encrypt(sizeof(keyBuffer), keyBuffer, buf, k,
       RSA_NO_PADDING)) < RSA_size(k))
   {
-    debug("couldn't generate random key; got %d bytes\n", count);
+    ERR_load_crypto_strings();
+    debug("couldn't generate random key; got %d of %d bytes\n", count,
+      sizeof(keyBuffer));
+    debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_ENCRYPT;
     goto rec_done;
   }
@@ -505,7 +513,7 @@ static ssize_t readExactly(int fd, void *buf, size_t count)
   while(total < count)
   {
     success = read(fd, buf+total, left);
-    debug("read %d bytes\n", success);
+    //debug("read %d bytes\n", success);
     if(success < 0)
     {
       return -1;
