@@ -4,9 +4,9 @@
  *  Protocol implementation.
  *  -# Client says hello: "OT#i", where 'i' specifies this is the little-endian
  *     binary representing this is the ith OT preformed.
- *  -# Server sends (K0, K1): two public keys
- *  -# Client sends Ck: a padded symmetric key encrypted under either K0 or K1.
- *  -# Server sends (C0, C1) : the symmetric encryption of secrets 0 and 1.
+ *  -# Server sends (K, x0, x1): K a public key, x0, x1 blinding factors
+ *  -# Client sends k: an encrypted blinding factor, blinded under either x.
+ *  -# Server sends (C0, C1) : secrets 0 and 1 blinded under k and k'.
  *  -# Client sends goodbye: "FN#i", where 'i' is the ith OT preformed.
  *
  *  Use RSA with blinding to mitigate problems with the RSA modulus.
