@@ -6,7 +6,7 @@
  *     binary representing this is the ith OT preformed.
  *  -# Server sends (K, x0, x1): K a public key, x0, x1 blinding factors
  *  -# Client sends k: an encrypted symmetric key, blinded under either x.
- *  -# Server sends (C0, C1) : secrets 0 and 1 encrypted under k and k'.
+ *  -# Server sends (C0, C1) : secrets 0 and 1 encrypted under decrypted k.
  *  -# Client sends goodbye: "FN#i", where 'i' is the ith OT preformed.
  *
  *  Use RSA with blinding to mitigate problems with the RSA modulus.
@@ -68,6 +68,7 @@
  *  EBAD_SIZE error when not enough bytes for writing a secret.
  *  EBAD_BYE error when the goodbye message is bad.
  *  EBAD_BLIND error when generating a blinding factor.
+ *  EBAD_ARITHM error when doing bignum arithmetic.
  */
 #define EBAD_HELLO 2
 #define EBAD_GEN 3
@@ -82,6 +83,7 @@
 #define EBAD_SIZE 12
 #define EBAD_BYE 13
 #define EBAD_BLIND 14
+#define EBAD_ARITHM 15
 
 static int sendPublicKey(RSA *, int);
 static int sendBlindingFactors(BIGNUM *, BIGNUM *, int);
@@ -117,8 +119,9 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   ssize_t count;
   int error = 0;
   RSA *k = NULL;
-  BIGNUM b0;
-  BIGNUM b1;
+  BIGNUM *b0 = BN_new();
+  BIGNUM *b1 = BN_new();
+  BIGNUM *c = BN_new();
 
   unsigned char decryptBuffer[PUB_BITS/8];
   AES_KEY symKey0;
@@ -148,20 +151,20 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //generate and send both blinding factors
-  if(!BN_rand_range(&b0, k->n))
+  if(!BN_rand_range(b0, k->n))
   {
     debug("Couldn't generate blinding factor 0\n");
     error = -EBAD_BLIND;
     goto send_done;
   }
-  if(!BN_rand_range(&b1, k->n))
+  if(!BN_rand_range(b1, k->n))
   {
     debug("Couldn't generate blinding factor 1\n");
     error = -EBAD_BLIND;
     goto send_done;
   }
 
-  if(sendBlindingFactors(&b0, &b1, socketfd))
+  if(sendBlindingFactors(b0, b1, socketfd))
   {
     debug("Coudln't send blinding factors.\n");
     error = EBAD_SEND;
@@ -176,11 +179,49 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  //decrypt under both private keys for two possible symmetric keys
+  //encrypted symmetric key -> bignum
+  if(BN_bin2bn(buf, PUB_BITS/8, c) != c)
+  {
+    debug("Couldn't create bignum from buffer");
+    error = EBAD_DECODE;
+    goto send_done;
+  }
+
+  //b0 = c - b0 (mod n)
+  if(!BN_mod_sub(b0, c, b0, k->n, NULL))
+  {
+    debug("Error subtracting blinding factor b0\n");
+    error = -EBAD_ARITHM;
+    goto send_done;
+  }
+
+  //b1 = c - b1 (mod n)
+  if(!BN_mod_sub(b1, c, b1, k->n, NULL))
+  {
+    debug("Error subtracting blinding factor b1\n");
+    error = -EBAD_ARITHM;
+    goto send_done;
+  }
+
+  //b0 bignum -> buffer
+  if((count = BN_bn2bin(b0, buf)) != PUB_BITS/8)
+  {
+    debug("Couldn't convert bignum b0 back to a buffer.\n");
+    error = -EBAD_DECODE;
+    goto send_done;
+  }
+
+  //buf -> bignum k
+  //(k - b0 (mod N) ; k - b1 (mod N)) -> buf
+  //decrypt buf
+
+  //decrypt under private key
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k, got %d\n", count);
+    debug("Couldn't decrypt with k and b0, got %d\n", count);
+    ERR_load_crypto_strings();
+    debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_DECRYPT;
     goto send_done;
   }
@@ -191,15 +232,23 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  //if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k1,
-  //      RSA_NO_PADDING)) < PUB_BITS / 8)
-  //{
-  //  debug("Couldn't decrypt with k1, got %d\n", count);
-  //  ERR_load_crypto_strings();
-  //  debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
-  //  error = -EBAD_DECRYPT;
-  //  goto send_done;
-  //}
+  //b1 bignum -> buffer
+  if((count = BN_bn2bin(b1, buf)) != PUB_BITS/8)
+  {
+    debug("Couldn't convert bignum b1 back to a buffer.\n");
+    error = -EBAD_DECODE;
+    goto send_done;
+  }
+
+  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
+        RSA_NO_PADDING)) < PUB_BITS / 8)
+  {
+    debug("Couldn't decrypt with k and b1, got %d\n", count);
+    ERR_load_crypto_strings();
+    debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
+    error = -EBAD_DECRYPT;
+    goto send_done;
+  }
   if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey1))
   {
     debug("couldn't derive symmetric key1\n");
@@ -232,10 +281,22 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
 send_done:
-  //deallocate keys
+  //deallocate keys and bignums
   if(k != NULL)
   {
     RSA_free(k);
+  }
+  if(b0 != NULL)
+  {
+    BN_free(b0);
+  }
+  if(b1 != NULL)
+  {
+    BN_free(b1);
+  }
+  if(c != NULL)
+  {
+    BN_free(c);
   }
   debug("error:%d\n");
   return error;
