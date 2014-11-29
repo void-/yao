@@ -164,9 +164,9 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  if(sendBlindingFactors(b0, b1, socketfd))
+  if(count = sendBlindingFactors(b0, b1, socketfd))
   {
-    debug("Couldn't send blinding factors.\n");
+    debug("Couldn't send blinding factors ; got %d.\n", count);
     error = -EBAD_SEND;
     goto send_done;
   }
@@ -326,8 +326,9 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   int error = 0;
   ssize_t count;
   RSA *k;
-  BIGNUM *b;
-  BIGNUM *p;
+  BIGNUM *b = BN_new();
+  BIGNUM *p = BN_new();
+  BN_CTX *bnTmp = BN_CTX_new();
   AES_KEY symKey;
   unsigned char keyBuffer[PUB_BITS/8];
   unsigned const char *tmpPtr = buf;
@@ -370,6 +371,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_RECEIVE;
     goto rec_done;
   }
+  debug("trying to turn buffer into bignum\n");
   if(BN_bin2bn(buf+((PUB_BITS/8)*which), PUB_BITS/8, b) != b)
   {
     debug("Error deserializing blinding factor\n");
@@ -377,6 +379,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  debug("generating symmetric key\n");
   //generate a symmetric key through a bignum; encrypt and blind it
   if(!BN_rand_range(p, k->n))
   {
@@ -384,15 +387,17 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_GEN;
     goto rec_done;
   }
-  if(count = (BN_bn2bin(p, keyBuffer)) != PUB_BITS/8)
+  debug("converting bignum to buffer\n");
+  if((count = BN_bn2bin(p, keyBuffer)) != PUB_BITS/8)
   {
-    debug("Couldn't convert bignum to buffer.\n");
+    debug("Couldn't convert bignum to buffer ; got %d.\n", count);
     error = -EBAD_DECODE;
     goto rec_done;
   }
 
+  debug("deriving symmetric key from last 128 bits\n");
   //derive a symmetric key from the last 128 bits - big endian
-  if(AES_set_encrypt_key(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
+  if(AES_set_encrypt_key(keyBuffer+((PUB_BITS/8) - SYM_SIZE - 1), SYM_SIZE*8,
       &symKey))
   {
     debug("couldn't derive symmetric key1\n");
@@ -400,6 +405,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  debug("encrypting under k\n");
   //encrypt padded symmetric key
   if((count = RSA_public_encrypt(count, keyBuffer, buf, k, RSA_NO_PADDING))
       < PUB_BITS/8)
@@ -412,6 +418,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  debug("converting ciphertext to bignum\n");
   //convert and blind symmetric key
   if(BN_bin2bn(keyBuffer, count, p) != p)
   {
@@ -420,14 +427,16 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  //serialize p and send it
-  if(!BN_mod_add(p, p, b, k->n, NULL))
+  debug("blinding ciphertext with blinding factor\n");
+  if(!BN_mod_add(p, p, b, k->n, bnTmp))
   {
     debug("Error adding blinding factor, p+b\n");
     error = -EBAD_ARITHM;
     goto rec_done;
   }
 
+  debug("serializing bn to buffer");
+  //serialize p and send it
   if((count = BN_bn2bin(p, keyBuffer)) != PUB_BITS/8)
   {
     debug("Couldn't convert bignum to buffer.\n");
@@ -435,14 +444,16 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  debug("writing blinded key\n");
   //send encrypted symmetric key
-  if(write(socketfd, buf, PUB_BITS/8) != PUB_BITS/8)
+  if(write(socketfd, keyBuffer, PUB_BITS/8) != PUB_BITS/8)
   {
     debug("Couldn't send encrypted symmetric key\n");
     error = -EBAD_SEND;
     goto rec_done;
   }
 
+  debug("reading secrets\n");
   //receive both encrypted secrets
   if((count = readExactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
   {
@@ -463,9 +474,22 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
 rec_done:
+  //free big nums and key
+  if(k != NULL)
+  {
+    RSA_free(k);
+  }
   if(b != NULL)
   {
     BN_free(b);
+  }
+  if(p != NULL)
+  {
+    BN_free(p);
+  }
+  if(bnTmp != NULL)
+  {
+    BN_CTX_free(bnTmp);
   }
   debug("error:%d\n", error);
   return error;
@@ -492,7 +516,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   unsigned char buf[sz];
 
   //zero buffer
-  for(count = 0; count < sz; ++sz)
+  for(count = 0; count < sz; ++count)
   {
     buf[count] = 0;
   }
@@ -500,7 +524,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   //serialize b0
   if((count = BN_bn2bin(b0, buf)) != sz)
   {
-    debug("serialzing b0 got %d bytes\n", count);
+    debug("serialzing b0 got sz:%d != count:%d bytes\n", sz, count);
     return -1;
   }
 
