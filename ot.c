@@ -67,6 +67,7 @@
  *  EBAD_ENCRYPT error when encrypting under a public key.
  *  EBAD_SIZE error when not enough bytes for writing a secret.
  *  EBAD_BYE error when the goodbye message is bad.
+ *  EBAD_BLIND error when generating a blinding factor.
  */
 #define EBAD_HELLO 2
 #define EBAD_GEN 3
@@ -80,8 +81,10 @@
 #define EBAD_ENCRYPT 11
 #define EBAD_SIZE 12
 #define EBAD_BYE 13
+#define EBAD_BLIND 14
 
-static int sendPublicKeys(RSA *, RSA *, int);
+static int sendPublicKey(RSA *, int);
+static int sendBlindingFactors(BIGNUM *, BIGNUM *, int);
 static ssize_t readExactly(int, void *, size_t);
 static int sendSeq(int, const char *, size_t, seq_t);
 static int getSeq(int, const char *, size_t, seq_t);
@@ -113,8 +116,9 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
   ssize_t count;
   int error = 0;
-  RSA *k0 = NULL;
-  RSA *k1 = NULL;
+  RSA *k = NULL;
+  BIGNUM b0;
+  BIGNUM b1;
 
   unsigned char decryptBuffer[PUB_BITS/8];
   AES_KEY symKey0;
@@ -128,24 +132,39 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  //generate and send two public keys
-  if((k0 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
-  {
-    debug("Couldn't generate a public key\n");
-    error = -EBAD_GEN;
-    goto send_done;
-  }
-  if((k1 = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
+  //generate and send public key
+  if((k = RSA_generate_key(PUB_BITS, RSA_F4, NULL, NULL)) == NULL)
   {
     debug("Couldn't generate a public key\n");
     error = -EBAD_GEN;
     goto send_done;
   }
 
-  if(sendPublicKeys(k0, k1, socketfd))
+  if(sendPublicKey(k, socketfd))
   {
     debug("Couldn't send public keys\n");
     error = -EBAD_SEND;
+    goto send_done;
+  }
+
+  //generate and send both blinding factors
+  if(!BN_rand_range(&b0, k->n))
+  {
+    debug("Couldn't generate blinding factor 0\n");
+    error = -EBAD_BLIND;
+    goto send_done;
+  }
+  if(!BN_rand_range(&b1, k->n))
+  {
+    debug("Couldn't generate blinding factor 1\n");
+    error = -EBAD_BLIND;
+    goto send_done;
+  }
+
+  if(sendBlindingFactors(&b0, &b1, socketfd))
+  {
+    debug("Coudln't send blinding factors.\n");
+    error = EBAD_SEND;
     goto send_done;
   }
 
@@ -158,10 +177,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //decrypt under both private keys for two possible symmetric keys
-  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k0,
+  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k0, got %d\n", count);
+    debug("Couldn't decrypt with k, got %d\n", count);
     error = -EBAD_DECRYPT;
     goto send_done;
   }
@@ -172,15 +191,15 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k1,
-        RSA_NO_PADDING)) < PUB_BITS / 8)
-  {
-    debug("Couldn't decrypt with k1, got %d\n", count);
-    ERR_load_crypto_strings();
-    debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
-    error = -EBAD_DECRYPT;
-    goto send_done;
-  }
+  //if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k1,
+  //      RSA_NO_PADDING)) < PUB_BITS / 8)
+  //{
+  //  debug("Couldn't decrypt with k1, got %d\n", count);
+  //  ERR_load_crypto_strings();
+  //  debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
+  //  error = -EBAD_DECRYPT;
+  //  goto send_done;
+  //}
   if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey1))
   {
     debug("couldn't derive symmetric key1\n");
@@ -214,13 +233,9 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
 send_done:
   //deallocate keys
-  if(k0 != NULL)
+  if(k != NULL)
   {
-    RSA_free(k0);
-  }
-  if(k1 != NULL)
-  {
-    RSA_free(k1);
+    RSA_free(k);
   }
   debug("error:%d\n");
   return error;
@@ -352,24 +367,82 @@ rec_done:
 }
 
 /**
- *  @brief given two public keys, serialize and write them to a socket.
+ *  @brief serialize two BIGNUM's(blinding factors) and write them to a socket.
  *
- *  NOTES:
+ *  NOTE:
  *  <p>
- *  - How are the serialized keys freed?
+ *  - Both blinding factors must be representable in the same number of bytes.
+ *  </p>
  *
- *  @param k0 pointer to RSA key to send.
- *  @param k1 pointer to RSA key to send.
+ *  @param b0 pointer to bignum to send.
+ *  @param b1 pointer to bignum to send.
  *  @param fd file descriptor to write to.
  *  @return non-zero on failure.
  */
-static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
+static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
 {
-  debug("sending k0\n");
+  int sz = BN_num_bytes(b0);
+  int count;
+  debug("blinding factor takes %d bytes\n", sz);
+  unsigned char buf[sz];
+
+  //zero buffer
+  for(count = 0; count < sz; ++sz)
+  {
+    buf[count] = 0;
+  }
+
+  //serialize b0
+  if((count = BN_bn2bin(b0, buf)) != sz)
+  {
+    debug("serialzing b0 got %d bytes\n", count);
+    return -1;
+  }
+
+  //send b0
+  if((count = write(fd, buf, sz)) != sz)
+  {
+    debug("Failed to write blinding factor 0, wrote %d\n", count);
+    return -2;
+  }
+
+  //zero buffer
+  for(count = 0; count < sz; ++count)
+  {
+    buf[count] = 0;
+  }
+
+  //serialize b1
+  if((count = BN_bn2bin(b1, buf)) != sz)
+  {
+    debug("serialzing b1 got %d bytes\n", count);
+    return -3;
+  }
+
+  //send b1
+  if((count = write(fd, buf, sz)) != sz)
+  {
+    debug("Failed to write blinding factor 1, wrote %d\n", count);
+    return -4;
+  }
+
+  return 0;
+}
+
+/**
+ *  @brief given a public key, serialize it and write it to a socket.
+ *
+ *  @param k pointer to RSA key to send.
+ *  @param fd file descriptor to write to.
+ *  @return non-zero on failure.
+ */
+static int sendPublicKey(RSA *k, int fd)
+{
+  debug("sending k\n");
   unsigned char buf[SERIAL_SIZE];
   unsigned char *bufPtr = buf;
-  debug("serializing k0\n");
-  int count = i2d_RSAPublicKey(k0, &bufPtr);
+  debug("serializing k\n");
+  int count = i2d_RSAPublicKey(k, &bufPtr);
   debug("serialization complete\n");
 
   //check serialization length
@@ -381,34 +454,13 @@ static int sendPublicKeys(RSA *k0, RSA *k1, int fd)
   debug("count:%d\n", count);
 
   size_t i;
-  //write k0
+  //write k
   if((i = write(fd, buf, count)) != count)
   {
-    debug("Failed to write key 1; wrote %d\n", i);
+    debug("Failed to write key ; wrote %d\n", i);
     return -2;
   }
-  debug("k0 sent\n");
-
-  //serialize k1
-  bufPtr = buf;
-  debug("serializing k1\n");
-  count = i2d_RSAPublicKey(k1, &bufPtr);
-  debug("serialization complete\n");
-
-  if(count != SERIAL_SIZE)
-  {
-    debug("Serialized the wrong number of bytes\n");
-    return -3;
-  }
-  debug("count:%d\n", count);
-
-  //write k1
-  if((i = write(fd, buf, count)) != count)
-  {
-    debug("Failed to write key 1; wrote %d\n", i);
-    return -4;
-  }
-  debug("k1 sent\n");
+  debug("k sent\n");
 
   return 0;
 }
