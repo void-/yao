@@ -138,7 +138,7 @@ int alice(sec_t secret, int socketfd)
         K[i][j][l] = (*buf) & 01;
       }
     }
-    debug("patterned higher matrix\n");
+    //debug("patterned higher matrix\n");
 
     for(j = 0; j <= 2*i; ++j)
     {
@@ -203,19 +203,26 @@ int alice(sec_t secret, int socketfd)
     goto done;
   }
 
+  debug("starting oblivious transfers\n");
   //do OTs
   for(i = 0; i < d; ++i)
   {
     //pack
-    pack(K[i][0], packedSecret0, k);
-    pack(K[i][1], packedSecret1, k);
-    if(OTsend(packedSecret0, packedSecret1, sizeof(packedSecret0),i, socketfd))
+    debug("packing %d\n", i);
+    //pack(K[i][0], packedSecret0, k);
+    //pack(K[i][1], packedSecret1, k);
+    debug("packed %d\n", i);
+    //if(OTsend(packedSecret0, packedSecret1, sizeof(packedSecret0),i, socketfd))
+    if(OTsend((unsigned char *)K[i][0], (unsigned char *)K[i][1], k, i, socketfd))
     {
       debug("OTsend() failed on i=%d\n", i);
       error = -EBAD_OT;
       goto done;
     }
+    debug("OT %d complete\n", i);
   }
+
+  debug("Oblivious transfers complete\n");
 
 done:
   debug("error:%d\n", error);
@@ -251,7 +258,12 @@ int bob(sec_t secret, int socketfd)
   //OT's
   for(i = 0; i < d; ++i)
   {
-    OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd);
+    if(OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd))
+    {
+      debug("OTreceive() failed on i=%d\n", i);
+      error = -EBAD_OT;
+      goto done;
+    }
     unpack(buf, bitBuf, k);
     for(j = 0; j < k; ++j)
     {
@@ -276,7 +288,7 @@ int bob(sec_t secret, int socketfd)
   error = (N[i-1] == 1);
 
 done:
-  debug("error: %d", error);
+  debug("error: %d\n", error);
   return error;
 }
 
