@@ -330,7 +330,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   BIGNUM *p = BN_new();
   BN_CTX *bnTmp = BN_CTX_new();
   AES_KEY symKey;
-  unsigned char keyBuffer[PUB_BITS/8];
+  unsigned char keyBuffer[PUB_BITS/8] = {0};
   unsigned const char *tmpPtr = buf;
   //unsigned const char *tmpPtr = buf;
 
@@ -435,7 +435,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("serializing bn to buffer");
+  debug("serializing bn to buffer\n");
   //serialize p and send it
   if((count = BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
