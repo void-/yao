@@ -183,7 +183,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   if(BN_bin2bn(buf, PUB_BITS/8, c) != c)
   {
     debug("Couldn't create bignum from buffer");
-    error = EBAD_DECODE;
+    error = -EBAD_DECODE;
     goto send_done;
   }
 
@@ -204,7 +204,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //b0 bignum -> buffer
-  if((count = BN_bn2bin(b0, buf)) != PUB_BITS/8)
+  if((count = BN_bn2bin(b0, buf)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum b0 back to a buffer.\n");
     error = -EBAD_DECODE;
@@ -233,7 +233,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
 
   //b1 bignum -> buffer
-  if((count = BN_bn2bin(b1, buf)) != PUB_BITS/8)
+  if((count = BN_bn2bin(b1, buf)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum b1 back to a buffer.\n");
     error = -EBAD_DECODE;
@@ -388,7 +388,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
   debug("converting bignum to buffer\n");
-  if((count = BN_bn2bin(p, keyBuffer)) != PUB_BITS/8)
+  if((count = BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum to buffer ; got %d.\n", count);
     error = -EBAD_DECODE;
@@ -407,8 +407,8 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
 
   debug("encrypting under k\n");
   //encrypt padded symmetric key
-  if((count = RSA_public_encrypt(count, keyBuffer, buf, k, RSA_NO_PADDING))
-      < PUB_BITS/8)
+  if((count = RSA_public_encrypt(PUB_BITS/8, keyBuffer, buf, k,
+      RSA_NO_PADDING)) < PUB_BITS/8)
   {
     ERR_load_crypto_strings();
     debug("couldn't generate random key; got %d of %d bytes\n", count,
@@ -437,7 +437,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
 
   debug("serializing bn to buffer");
   //serialize p and send it
-  if((count = BN_bn2bin(p, keyBuffer)) != PUB_BITS/8)
+  if((count = BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum to buffer.\n");
     error = -EBAD_DECODE;
@@ -522,7 +522,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   }
 
   //serialize b0
-  if((count = BN_bn2bin(b0, buf)) != sz)
+  if((count = BN_bn2bin(b0, buf)) > sz)
   {
     debug("serialzing b0 got sz:%d != count:%d bytes\n", sz, count);
     return -1;
@@ -541,15 +541,15 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     buf[count] = 0;
   }
 
-  //serialize b1
-  if((count = BN_bn2bin(b1, buf)) != sz)
+  //serialize b1 ; < 128 bytes is ok because the higher order bytes can = 0
+  if((count = BN_bn2bin(b1, buf)) > sz)
   {
     debug("serialzing b1 got %d bytes\n", count);
     return -3;
   }
 
   //send b1
-  if((count = write(fd, buf, sz)) != sz)
+  if((count = write(fd, buf, sz)) > sz)
   {
     debug("Failed to write blinding factor 1, wrote %d\n", count);
     return -4;
