@@ -207,13 +207,8 @@ int alice(sec_t secret, int socketfd)
   //do OTs
   for(i = 0; i < d; ++i)
   {
-    //pack
-    debug("packing %d\n", i);
-    //pack(K[i][0], packedSecret0, k);
-    //pack(K[i][1], packedSecret1, k);
-    debug("packed %d\n", i);
-    //if(OTsend(packedSecret0, packedSecret1, sizeof(packedSecret0),i, socketfd))
-    if(OTsend((unsigned char *)K[i][0], (unsigned char *)K[i][1], k, i, socketfd))
+    if(OTsend((unsigned char *)K[i][0], (unsigned char *)K[i][1], k, i,
+        socketfd))
     {
       debug("OTsend() failed on i=%d\n", i);
       error = -EBAD_OT;
@@ -244,7 +239,7 @@ int bob(sec_t secret, int socketfd)
   size_t count;
   size_t i;
   size_t j;
-  unsigned char buf[SYM_SIZE];
+  //unsigned char buf[SYM_SIZE];
   bool bitBuf[k];
 
   //read N
@@ -258,13 +253,13 @@ int bob(sec_t secret, int socketfd)
   //OT's
   for(i = 0; i < d; ++i)
   {
-    if(OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd))
+    if(OTreceive((unsigned char *) bitBuf, sizeof(bitBuf), fortuneI(secret, i),
+        i, socketfd))
     {
       debug("OTreceive() failed on i=%d\n", i);
       error = -EBAD_OT;
       goto done;
     }
-    unpack(buf, bitBuf, k);
     for(j = 0; j < k; ++j)
     {
       N[j] = bitBuf[j] ^ N[j];
