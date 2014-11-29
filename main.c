@@ -67,7 +67,7 @@ int main(int argc, char **argv)
     }
     else
     {
-      printf("the client's is > than client's\n");
+      printf("the client's is > than server's\n");
     }
   }
 
