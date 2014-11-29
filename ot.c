@@ -510,46 +510,38 @@ rec_done:
  */
 static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
 {
-  int sz = BN_num_bytes(b0);
   int count;
-  debug("blinding factor takes %d bytes\n", sz);
-  unsigned char buf[sz];
-
-  //zero buffer
-  for(count = 0; count < sz; ++count)
-  {
-    buf[count] = 0;
-  }
+  unsigned char buf[PUB_BITS/8] = {0};
 
   //serialize b0
-  if((count = BN_bn2bin(b0, buf)) > sz)
+  if((count = BN_bn2bin(b0, buf)) > sizeof(buf))
   {
-    debug("serialzing b0 got sz:%d != count:%d bytes\n", sz, count);
+    debug("serialzing b0 got %d != count:%d bytes\n", sizeof(buf), count);
     return -1;
   }
 
   //send b0
-  if((count = write(fd, buf, sz)) != sz)
+  if((count = write(fd, buf, sizeof(buf))) != sizeof(buf))
   {
     debug("Failed to write blinding factor 0, wrote %d\n", count);
     return -2;
   }
 
   //zero buffer
-  for(count = 0; count < sz; ++count)
+  for(count = 0; count < sizeof(buf); ++count)
   {
     buf[count] = 0;
   }
 
   //serialize b1 ; < 128 bytes is ok because the higher order bytes can = 0
-  if((count = BN_bn2bin(b1, buf)) > sz)
+  if((count = BN_bn2bin(b1, buf)) > sizeof(buf))
   {
     debug("serialzing b1 got %d bytes\n", count);
     return -3;
   }
 
   //send b1
-  if((count = write(fd, buf, sz)) > sz)
+  if((count = write(fd, buf, sizeof(buf))) > sizeof(buf))
   {
     debug("Failed to write blinding factor 1, wrote %d\n", count);
     return -4;
