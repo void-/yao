@@ -99,7 +99,7 @@ static void charToBool(unsigned char , bool *);
 int alice(sec_t secret, int socketfd)
 {
   debug("called alice() with secret %d with fd %d\n", secret, socketfd);
-  int error = 0;
+  int error = 1;
   size_t u;
   size_t v;
 
@@ -118,10 +118,13 @@ int alice(sec_t secret, int socketfd)
   size_t l;
   size_t count;
 
+  //seed with /dev/urandom; NOTE: Is this sufficient?
+  RAND_poll();
+
   //pick random u in (0,2k) and v in [0,k]
-  error |= RAND_bytes(&u, sizeof(u));
+  error &= RAND_bytes(&u, sizeof(u));
   u = 1 + u % ((2*k) - 1);
-  error |= RAND_bytes(&v, sizeof(v));
+  error &= RAND_bytes(&v, sizeof(v));
   v = v % (k+1);
 
   debug("u:%d, v:%d\n",u,v);
@@ -133,7 +136,7 @@ int alice(sec_t secret, int socketfd)
     {
       for(l = v; l < k; ++l)
       {
-        error |= RAND_bytes(buf, sizeof(buf));
+        error &= RAND_bytes(buf, sizeof(buf));
         //pick a random bit
         K[i][j][l] = (*buf) & 01;
       }
@@ -142,7 +145,7 @@ int alice(sec_t secret, int socketfd)
 
     for(j = 0; j <= 2*i; ++j)
     {
-      error |= RAND_bytes(buf, sizeof(buf));
+      error &= RAND_bytes(buf, sizeof(buf));
       K[i][!fortuneI(secret, i)][j] = (*buf) & 01;
     }
     K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
@@ -151,18 +154,20 @@ int alice(sec_t secret, int socketfd)
     //S[i] should be a random k-bit number
     for(j = 0; j < k; ++j)
     {
-      error |= RAND_bytes(buf, sizeof(buf));
+      error &= RAND_bytes(buf, sizeof(buf));
       S[i][j] = (*buf) & 01;
     }
   }
   debug("alice(): filled matrix\n");
 
-  if(error) //error if any random generations failed
+  if(!error) //error if rng failed ; 0 = failure
   {
     debug("Error generating random bits\n");
     error = -EBAD_GEN;
-    //goto done;
+    goto done;
   }
+
+  error = 0;
 
   //compute S's k-2 bit
   reduce = 1;
