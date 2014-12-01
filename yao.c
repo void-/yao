@@ -119,13 +119,13 @@ int alice(sec_t secret, int socketfd)
   size_t count;
 
   //seed with /dev/urandom; NOTE: Is this sufficient?
-  RAND_poll();
+  //RAND_poll();
 
   //pick random u in (0,2k) and v in [0,k]
   error &= RAND_bytes(&u, sizeof(u));
-  u = 1 + u % ((2*k) - 1);
+  u = 1u + (u % ((2u*k) - 1));
   error &= RAND_bytes(&v, sizeof(v));
-  v = v % (k+1);
+  v = v % (k+1u);
 
   debug("u:%d, v:%d\n",u,v);
 
@@ -143,7 +143,7 @@ int alice(sec_t secret, int socketfd)
     }
     //debug("patterned higher matrix\n");
 
-    for(j = 0; j <= 2*i; ++j)
+    for(j = 0; j < (2u*i); ++j)
     {
       error &= RAND_bytes(buf, sizeof(buf));
       K[i][!fortuneI(secret, i)][j] = (*buf) & 01;
@@ -187,6 +187,19 @@ int alice(sec_t secret, int socketfd)
   }
   S[d-1][k-1] = reduce;
   debug("computed higher order bits\n");
+
+  //compute K'
+  for(i = 0; i < d; ++i)
+  {
+    for(j = 0; j < 2; ++j)
+    {
+      for(l = 0; l < k; ++l)
+      {
+        K[i][j][l] ^ S[i][l];
+      }
+      rol(K[i][j], k, u);
+    }
+  }
 
   //reduce and shift N
   for(i = 0; i < d; ++i)
