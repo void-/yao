@@ -84,8 +84,8 @@
   #define debug
 #endif //DEBUG
 
-static void rol(bool [], size_t, size_t);
-static void pack(bool [], unsigned char [], size_t);
+static void rol(bool *, size_t, size_t);
+static void pack(bool *, unsigned char *, size_t);
 static unsigned char boolToChar(bool *);
 static void unpack(unsigned char *, bool *, size_t);
 static void charToBool(unsigned char , bool *);
@@ -195,7 +195,7 @@ int alice(sec_t secret, int socketfd)
     {
       for(l = 0; l < k; ++l)
       {
-        K[i][j][l] ^ S[i][l];
+        K[i][j][l] ^= S[i][l];
       }
       rol(K[i][j], k, u);
     }
@@ -225,8 +225,9 @@ int alice(sec_t secret, int socketfd)
   //do OTs
   for(i = 0; i < d; ++i)
   {
-    if(OTsend((unsigned char *)K[i][0], (unsigned char *)K[i][1], k, i,
-        socketfd))
+    pack(K[i][0], packedSecret0, k);
+    pack(K[i][1], packedSecret1, k);
+    if(OTsend(packedSecret0, packedSecret1, k/(8), i, socketfd))
     {
       debug("OTsend() failed on i=%d\n", i);
       error = -EBAD_OT;
@@ -257,7 +258,7 @@ int bob(sec_t secret, int socketfd)
   size_t count;
   size_t i;
   size_t j;
-  //unsigned char buf[SYM_SIZE];
+  unsigned char buf[SYM_SIZE];
   bool bitBuf[k];
 
   //read N
@@ -271,13 +272,30 @@ int bob(sec_t secret, int socketfd)
   //OT's
   for(i = 0; i < d; ++i)
   {
-    if(OTreceive((unsigned char *) bitBuf, sizeof(bitBuf), fortuneI(secret, i),
-        i, socketfd))
+    if(OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd))
     {
       debug("OTreceive() failed on i=%d\n", i);
       error = -EBAD_OT;
       goto done;
     }
+    unpack(buf, bitBuf, sizeof(bitBuf));
+#ifdef DEBUG
+    //check that bitBuf is correctly unpacked into to
+    for(j = 0; j < k/8; ++j)
+    {
+      debug("%02x ", buf[j]);
+    }
+    debug("\n");
+    for(j = 0; j < k; ++j)
+    {
+      if(!(j%4)) //separate nibbles
+      {
+        debug(" ");
+      }
+      debug("%d", bitBuf[j]);
+    }
+    debug("\n");
+#endif
     for(j = 0; j < k; ++j)
     {
       N[j] = bitBuf[j] ^ N[j];
@@ -286,16 +304,13 @@ int bob(sec_t secret, int socketfd)
 
   //lookAt r = N
   count = 0;
-  for(i = sizeof(N) - 1; i; --i)
+  for(i = 0; i < sizeof(N); ++i)
   {
     debug("%d", N[i]);
     //apply a bad heuristic
     count += (N[i] == 0);
-    if(count > 2)
-    {
-      break;
-    }
   }
+  debug("\n");
 
   //apply bad heuristic again
   error = (N[i-1] == 1);
@@ -314,7 +329,7 @@ done:
  *  @param size, in bits, of \p n.
  *  @param shift, ammount to shift \n by.
  */
-static void rol(bool n[], size_t size, size_t shift)
+static void rol(bool *n, size_t size, size_t shift)
 {
   size_t i;
   bool highBit;
@@ -332,15 +347,17 @@ static void rol(bool n[], size_t size, size_t shift)
 /**
  *  @brief pack a bool array into a blob.
  *
+ *  \p a -> pack -> \p b
+ *
  *  @param a the bool array to read data from.
  *  @param b the char array to pack the data into.
  *  @param len the size, in bits, of a.
  */
-static void pack(bool a[], unsigned char b[], size_t len)
+static void pack(bool *a, unsigned char *b, size_t len)
 {
   size_t i;
 
-  for(i = 0; i < (len/sizeof(unsigned char)); ++i)
+  for(i = 0; i < (len/(8*sizeof(unsigned char))); ++i)
   {
     b[i] = boolToChar(a+(8*i));
   }
@@ -371,6 +388,8 @@ static unsigned char boolToChar(bool *in)
 /**
  *  @brief unpack an array of chars into an array of bits.
  *
+ *  \p buf -> unpack -> \p bitBuf
+ *
  *  @param buf the char array to read from.
  *  @param bitBuf the bool array to unpack into.
  *  @param the size, in bits, of \p bitBuf.
@@ -378,9 +397,9 @@ static unsigned char boolToChar(bool *in)
 static void unpack(unsigned char *buf, bool *bitBuf, size_t size)
 {
   size_t i;
-  for(i = 0; i < (size / (8 * sizeof(unsigned char))); ++i)
+  for(i = 0; i < (size / (8u * sizeof(unsigned char))); ++i)
   {
-    charToBool(buf[i], bitBuf+(8*i));
+    charToBool(buf[i], bitBuf+(8u*i));
   }
 }
 
@@ -394,9 +413,12 @@ static void unpack(unsigned char *buf, bool *bitBuf, size_t size)
  */
 static void charToBool(unsigned char c, bool *bitBuf)
 {
-  size_t i;
-  for(i = 0; i < 8 * sizeof(unsigned char); ++i)
-  {
-    bitBuf[i] = (c >> i) & 01;
-  }
+  bitBuf[0] = c&0b00000001;
+  bitBuf[1] = c&0b00000010;
+  bitBuf[2] = c&0b00000100;
+  bitBuf[3] = c&0b00001000;
+  bitBuf[4] = c&0b00010000;
+  bitBuf[5] = c&0b00100000;
+  bitBuf[6] = c&0b01000000;
+  bitBuf[7] = c&0b10000000;
 }
