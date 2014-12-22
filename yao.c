@@ -84,11 +84,22 @@
   #define debug
 #endif //DEBUG
 
+static size_t findZeros(bool *, size_t);
 static void rol(bool *, size_t, size_t);
 static void pack(bool *, unsigned char *, size_t);
 static unsigned char boolToChar(bool *);
 static void unpack(unsigned char *, bool *, size_t);
 static void charToBool(unsigned char , bool *);
+
+static void dump(bool *b)
+{
+  size_t i;
+  for(i = 0; i < k; ++i)
+  {
+    debug("%d", *(b+i));
+  }
+  debug("\n");
+}
 
 /**
  *  @brief act as Alice in the protocol.
@@ -132,6 +143,7 @@ int alice(sec_t secret, int socketfd)
   debug("alice(): beggining to fill matrix\n");
   for(i = 0; i < d; ++i)
   {
+    //set bits >= v to random
     for(j = 0; j < 2; ++j)
     {
       for(l = v; l < k; ++l)
@@ -140,9 +152,12 @@ int alice(sec_t secret, int socketfd)
         //pick a random bit
         K[i][j][l] = (*buf) & 01;
       }
+      dump(K[i][j]);
     }
+    debug("? bits > %d random:\n", v);
     //debug("patterned higher matrix\n");
 
+    //K should look like : rrr...r ai 1
     for(j = 0; j < (2u*i); ++j)
     {
       error &= RAND_bytes(buf, sizeof(buf));
@@ -150,6 +165,8 @@ int alice(sec_t secret, int socketfd)
     }
     K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
     K[i][!fortuneI(secret, i)][2*i] = fortuneI(secret, i);
+    dump(K[i][!fortuneI(secret, i)]);
+    debug("? looks like rrr...r %d 1\n", fortuneI(secret, i));
 
     //S[i] should be a random k-bit number
     for(j = 0; j < k; ++j)
@@ -279,45 +296,61 @@ int bob(sec_t secret, int socketfd)
       goto done;
     }
     unpack(buf, bitBuf, sizeof(bitBuf));
-#ifdef DEBUG
-    //check that bitBuf is correctly unpacked into to
-    for(j = 0; j < k/8; ++j)
-    {
-      debug("%02x ", buf[j]);
-    }
-    debug("\n");
-    for(j = 0; j < k; ++j)
-    {
-      if(!(j%4)) //separate nibbles
-      {
-        debug(" ");
-      }
-      debug("%d", bitBuf[j]);
-    }
-    debug("\n");
-#endif
     for(j = 0; j < k; ++j)
     {
       N[j] = bitBuf[j] ^ N[j];
     }
   }
 
-  //lookAt r = N
-  count = 0;
-  for(i = 0; i < sizeof(N); ++i)
-  {
-    debug("%d", N[i]);
-    //apply a bad heuristic
-    count += (N[i] == 0);
-  }
-  debug("\n");
+  dump(N);
+  //look from right to left for a large substring of zeros
+  i = findZeros(N, sizeof(N));
+  debug("found %d\n", i);
 
-  //apply bad heuristic again
+  //look at the bit 2 before the longest substring of zeros
   error = (N[i-1] == 1);
 
 done:
   debug("error: %d\n", error);
   return error;
+}
+
+/**
+ *  @brief find the index of the longest substring of zeros.
+ * 
+ *  @param a the array of bits to scan.
+ *  @param n the length of \p a.
+ * 
+ *  @return the index before the start of the longest substring of zeros.
+ */
+static size_t findZeros(bool *a, size_t n)
+{
+  size_t i;
+  size_t curLen = 0;
+  size_t best = 0;
+  size_t save;
+  bool in;
+
+  //scan from right to left
+  for(i = n-1; i > 0; --i)
+  {
+    if(!a[i])
+    {
+      in = true;
+      ++curLen;
+    }
+    else
+    {
+      in = false;
+      if(curLen >= best)
+      {
+        best = curLen;
+        save = i; //save the index right before the longest substring of zeros
+      }
+      curLen = 0;
+    }
+  }
+  return save;
 }
 
 /**
