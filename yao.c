@@ -152,9 +152,7 @@ int alice(sec_t secret, int socketfd)
         //pick a random bit
         K[i][j][l] = (*buf) & 01;
       }
-      dump(K[i][j]);
     }
-    debug("? bits > %d random:\n", v);
     //debug("patterned higher matrix\n");
 
     //K should look like : rrr...r ai 1
@@ -165,8 +163,6 @@ int alice(sec_t secret, int socketfd)
     }
     K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
     K[i][!fortuneI(secret, i)][2*i] = fortuneI(secret, i);
-    dump(K[i][!fortuneI(secret, i)]);
-    debug("? looks like rrr...r %d 1\n", fortuneI(secret, i));
 
     //S[i] should be a random k-bit number
     for(j = 0; j < k; ++j)
