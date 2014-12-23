@@ -31,6 +31,8 @@
 #include <openssl/aes.h>
 #include <openssl/err.h>
 
+#include <string.h>
+
 /**
  *  Constants.
  *
@@ -94,12 +96,12 @@ static int getSeq(int, const char *, size_t, seq_t);
 /**
  *  Print in hex a buffer \p a of length \p n.
  */
-static void hexdump(unsigned char const *const a, size_t n)
+static void hexdump(void const *const a, size_t n)
 {
   size_t i;
   for(i = 0; i < n; ++i)
   {
-    debug("%02x", a[i]);
+    debug("%02x", *(unsigned char *)(a+i));
   }
   debug("\n");
 }
@@ -168,9 +170,9 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  debug("modulus:\n");
-  BN_print_fp(stdout, k->n);
-  debug("\n");
+  //debug("modulus:\n");
+  //BN_print_fp(stdout, k->n);
+  //debug("\n");
 
   //generate and send both blinding factors
   if(!BN_rand_range(b0, k->n))
@@ -186,11 +188,11 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
-  debug("b0:\n");
-  BN_print_fp(stdout, b0);
-  debug("\nb1:\n");
-  BN_print_fp(stdout, b1);
-  debug("\n");
+  //debug("b0:\n");
+  //BN_print_fp(stdout, b0);
+  //debug("\nb1:\n");
+  //BN_print_fp(stdout, b1);
+  //debug("\n");
 
   if(count = sendBlindingFactors(b0, b1, socketfd))
   {
@@ -207,7 +209,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
   debug("got encrypted symmetric key:\n");
-  hexdump(buf, PUB_BITS/8);
+  //hexdump(buf, PUB_BITS/8);
 
   //encrypted symmetric key -> bignum
   if(BN_bin2bn(buf, PUB_BITS/8, c) != c)
@@ -255,12 +257,16 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_DECRYPT;
     goto send_done;
   }
-  if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey0))
+  if(AES_set_encrypt_key(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
+      &symKey0))
   {
     debug("couldn't derive symmetric key0\n");
     error = -EBAD_DERIVE;
     goto send_done;
   }
+  debug("symKey0:\n");
+  hexdump(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE);
+  //hexdump(symKey0.rd_key, sizeof(symKey0.rd_key));
 
   //b1 bignum -> buffer
   if((count = BN_bn2bin(b1, buf)) > PUB_BITS/8)
@@ -279,15 +285,20 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_DECRYPT;
     goto send_done;
   }
-  if(AES_set_encrypt_key(decryptBuffer, SYM_SIZE*8, &symKey1))
+  if(AES_set_encrypt_key(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
+      &symKey1))
   {
     debug("couldn't derive symmetric key1\n");
     error = -EBAD_DERIVE;
     goto send_done;
   }
+  debug("symKey1:\n");
+  //hexdump(symKey1.rd_key, sizeof(symKey1.rd_key));
+  hexdump(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE);
 
   //encrypt and write both secrets
   AES_encrypt(secret0, buf, &symKey0);
+  hexdump(buf, SYM_SIZE);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret0 \n");
@@ -295,11 +306,14 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
   AES_encrypt(secret1, buf, &symKey0);
+  debug("encrypted secret1:\n");
+  hexdump(buf, SYM_SIZE);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret1 \n");
     error = -EBAD_TRANSFER;
     goto send_done;
+
   }
 
   //read and check the goodbye message
@@ -394,9 +408,9 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("modulus:\n");
-  BN_print_fp(stdout, k->n);
-  debug("\n");
+  //debug("modulus:\n");
+  //BN_print_fp(stdout, k->n);
+  //debug("\n");
 
   //read blinding factors and deserialize either
   if((count = readExactly(socketfd, buf, (PUB_BITS/8)*2)) != (PUB_BITS/8)*2)
@@ -413,9 +427,9 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("b:\n");
-  BN_print_fp(stdout, b);
-  debug("\n");
+  //debug("b:\n");
+  //BN_print_fp(stdout, b);
+  //debug("\n");
 
   debug("generating symmetric key\n");
   //generate a symmetric key through a bignum; encrypt and blind it
@@ -433,14 +447,14 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("generated p:\n");
-  BN_print_fp(stdout, p);
-  debug("\np as a buffer:\n");
-  hexdump(keyBuffer, sizeof(keyBuffer));
+  //debug("generated p:\n");
+  //BN_print_fp(stdout, p);
+  //debug("\np as a buffer:\n");
+  //hexdump(keyBuffer, sizeof(keyBuffer));
 
   debug("deriving symmetric key from last 128 bits\n");
   //derive a symmetric key from the last 128 bits - big endian
-  if(AES_set_encrypt_key(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
+  if(AES_set_decrypt_key(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
       &symKey))
   {
     debug("couldn't derive symmetric key1\n");
@@ -449,6 +463,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   debug("derived symmetric key:\n");
+  //hexdump(symKey.rd_key, sizeof(symKey.rd_key));
   hexdump(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE);
 
   debug("encrypting under k\n");
@@ -466,7 +481,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
 
   debug("converting ciphertext to bignum\n");
   //convert and blind symmetric key
-  if(BN_bin2bn(keyBuffer, count, p) != p)
+  if(BN_bin2bn(buf, count, p) != p)
   {
     debug("could not convert symmetric key to bignum\n");
     error = EBAD_DECODE;
@@ -480,6 +495,9 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_ARITHM;
     goto rec_done;
   }
+  //debug("ct+b = ");
+  //BN_print_fp(stdout, p);
+  //debug("\n");
 
   debug("serializing bn to buffer\n");
   //serialize p and send it
@@ -491,7 +509,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   debug("writing blinded key\n");
-  hexdump(keyBuffer, PUB_BITS/8);
+  //hexdump(keyBuffer, PUB_BITS/8);
   //send encrypted symmetric key
   if(write(socketfd, keyBuffer, PUB_BITS/8) != PUB_BITS/8)
   {
@@ -510,8 +528,11 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   //decrypt either secret
+  debug("received:\n");
+  hexdump(buf+(which*SYM_SIZE), SYM_SIZE);
   AES_decrypt(buf+(which*SYM_SIZE), output, &symKey);
 
+  debug("got final secret:\n");
   hexdump(output, size);
 
   //write goodbye
