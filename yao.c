@@ -101,6 +101,16 @@ static void dump(bool *b)
   debug("\n");
 }
 
+static void hexdump(void *a, size_t n)
+{
+  size_t i;
+  for(i = 0; i < n; ++i)
+  {
+    debug("%02x", ((unsigned char *)a)[i]);
+  }
+  debug("\n");
+}
+
 /**
  *  @brief act as Alice in the protocol.
  *
@@ -138,6 +148,12 @@ int alice(sec_t secret, int socketfd)
   error &= RAND_bytes(&v, sizeof(v));
   v = v % (k+1u);
 
+  //u = 85;
+  //v = 25;
+  v = 38;
+  //v = 0;
+  //u = v = 64;
+
   debug("u:%d, v:%d\n",u,v);
 
   debug("alice(): beggining to fill matrix\n");
@@ -161,8 +177,10 @@ int alice(sec_t secret, int socketfd)
       error &= RAND_bytes(buf, sizeof(buf));
       K[i][!fortuneI(secret, i)][j] = (*buf) & 01;
     }
-    K[i][!fortuneI(secret, i)][(2*i) + 1] = 1;
-    K[i][!fortuneI(secret, i)][2*i] = fortuneI(secret, i);
+    K[i][!fortuneI(secret, i)][(2u*i) + 1u] = 01;
+    K[i][!fortuneI(secret, i)][2u*i] = fortuneI(secret, i);
+    //dump(K[i][0]);
+    //dump(K[i][1]);
 
     //S[i] should be a random k-bit number
     for(j = 0; j < k; ++j)
@@ -210,7 +228,9 @@ int alice(sec_t secret, int socketfd)
       {
         K[i][j][l] ^= S[i][l];
       }
+      //dump(K[i][j]);
       rol(K[i][j], k, u);
+      //dump(K[i][j]);
     }
   }
 
@@ -226,6 +246,7 @@ int alice(sec_t secret, int socketfd)
   rol(N, sizeof(N), u);
   debug("rol()'d N\n");
 
+  dump(N);
   //send N
   if((count = write(socketfd, N, sizeof(N))) != sizeof(N))
   {
@@ -240,6 +261,8 @@ int alice(sec_t secret, int socketfd)
   {
     pack(K[i][0], packedSecret0, k);
     pack(K[i][1], packedSecret1, k);
+    hexdump(packedSecret0, SYM_SIZE);
+    hexdump(packedSecret1, SYM_SIZE);
     if(OTsend(packedSecret0, packedSecret1, k/(8), i, socketfd))
     {
       debug("OTsend() failed on i=%d\n", i);
@@ -267,12 +290,12 @@ int bob(sec_t secret, int socketfd)
 {
   debug("called bob() with secret %d with fd %d\n", secret, socketfd);
   int error = 0;
-  bool N[k];
+  bool N[k] = {0};
   size_t count;
   size_t i;
   size_t j;
   unsigned char buf[SYM_SIZE];
-  bool bitBuf[k];
+  bool bitBuf[k] = {0};
 
   //read N
   if((count = read(socketfd, N, sizeof(N))) != sizeof(N))
@@ -281,20 +304,23 @@ int bob(sec_t secret, int socketfd)
     error = -EBAD_READ;
     goto done;
   }
+  dump(N);
 
   //OT's
   for(i = 0; i < d; ++i)
   {
+    debug("%d\n", fortuneI(secret, i));
     if(OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd))
     {
       debug("OTreceive() failed on i=%d\n", i);
       error = -EBAD_OT;
       goto done;
     }
+    hexdump(buf, sizeof(buf));
     unpack(buf, bitBuf, sizeof(bitBuf));
     for(j = 0; j < k; ++j)
     {
-      N[j] = bitBuf[j] ^ N[j];
+      N[j] ^= bitBuf[j];
     }
   }
 
