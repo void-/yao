@@ -146,11 +146,11 @@ int alice(sec_t secret, int socketfd)
   error &= RAND_bytes(&u, sizeof(u));
   u = 1u + (u % ((2u*k) - 1));
   error &= RAND_bytes(&v, sizeof(v));
-  v = v % (k+1u);
+  v = (k/2) + v % ((k/2)+1u);
 
   //u = 85;
   //v = 25;
-  v = 38;
+  //v = 38;
   //v = 0;
   //u = v = 64;
 
