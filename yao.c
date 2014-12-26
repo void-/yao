@@ -339,6 +339,9 @@ done:
 
 /**
  *  @brief find the index of the longest substring of zeros.
+ *
+ *  At most 2 passes need to be made through \p a incase it looks like: \n
+ *  000000...rrr...a1000
  * 
  *  @param a the array of bits to scan.
  *  @param n the length of \p a.
@@ -352,26 +355,32 @@ static size_t findZeros(bool *a, size_t n)
   size_t best = 0;
   size_t save;
   bool in;
+  int loops = 0;
 
-  //scan from right to left
-  for(i = n-1; i > 0; --i)
+  do
   {
-    if(!a[i])
+    //scan from right to left (msb to lsb)
+    for(i = n-1; i > 0; --i)
     {
-      in = true;
-      ++curLen;
-    }
-    else
-    {
-      in = false;
-      if(curLen >= best)
+      if(!a[i])
       {
-        best = curLen;
-        save = i; //save the index right before the longest substring of zeros
+        in = true;
+        ++curLen;
       }
-      curLen = 0;
+      else
+      {
+        in = false;
+        if(curLen >= best)
+        {
+          best = curLen;
+          save = i; //save the index right before the longest substring of zero
+        }
+        curLen = 0;
+      }
     }
-  }
+    ++loops;
+  } while(in && loops < 2);
+
   return save;
 }
 
