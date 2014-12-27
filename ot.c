@@ -452,6 +452,22 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  if(count && count < PUB_BITS/8) //if any higher order bytes are 0
+  {
+    unsigned int i;
+    //right align the bignum to 128 bytes, leaving higher order bytes 0
+    for(i = count-1; i; --i)
+    {
+      buf[i+((PUB_BITS/8) - count)] = buf[i];
+    }
+
+    //zero out the higher order bytes
+    for(i = 0; i < (PUB_BITS/8) - count; ++i)
+    {
+      buf[i] = 0;
+    }
+  }
+
   //debug("generated p:\n");
   //BN_print_fp(stdout, p);
   //debug("\np as a buffer:\n");
@@ -521,6 +537,23 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     debug("Couldn't send encrypted symmetric key\n");
     error = -EBAD_SEND;
     goto rec_done;
+  }
+
+  //TODO: create function `rightAlign()'
+  if(count && count < PUB_BITS/8)
+  {
+    unsigned int i;
+    //move the serialized bignum over to the right side of the buffer
+    for(i = count-1; i; --i)
+    {
+      buf[i+(sizeof(buf) - count)] = buf[i];
+    }
+
+    //zero out the higher order bytes
+    for(i = 0; i < sizeof(buf) - count; ++i)
+    {
+      buf[i] = 0;
+    }
   }
 
   debug("reading secrets\n");
@@ -603,6 +636,12 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     {
       buf[i+(sizeof(buf) - count)] = buf[i];
     }
+
+    //zero out the higher order bytes
+    for(i = 0; i < sizeof(buf) - count; ++i)
+    {
+      buf[i] = 0;
+    }
   }
 
   //send b0
@@ -633,6 +672,12 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     for(i = count-1; i; --i)
     {
       buf[i+(sizeof(buf) - count)] = buf[i];
+    }
+
+    //zero out the higher order bytes
+    for(i = 0; i < sizeof(buf) - count; ++i)
+    {
+      buf[i] = 0;
     }
   }
 
