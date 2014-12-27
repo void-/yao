@@ -140,6 +140,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
   unsigned char decryptBuffer[PUB_BITS/8];
   AES_KEY symKey0;
+  AES_KEY dec;
   AES_KEY symKey1;
 
   debug("secret0\n");
@@ -292,6 +293,8 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_DERIVE;
     goto send_done;
   }
+  AES_set_decrypt_key(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
+    &dec);
   debug("symKey1:\n");
   //hexdump(symKey1.rd_key, sizeof(symKey1.rd_key));
   hexdump(decryptBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE);
@@ -305,15 +308,17 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_TRANSFER;
     goto send_done;
   }
-  AES_encrypt(secret1, buf, &symKey0);
+  AES_encrypt(secret1, buf, &symKey1);
+  AES_decrypt(buf, decryptBuffer, &dec);
   debug("encrypted secret1:\n");
   hexdump(buf, SYM_SIZE);
+  debug("decrypted secret1:\n");
+  hexdump(decryptBuffer, SYM_SIZE);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret1 \n");
     error = -EBAD_TRANSFER;
     goto send_done;
-
   }
 
   //read and check the goodbye message
@@ -590,6 +595,16 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     return -1;
   }
 
+  if(count && count < PUB_BITS/8) //if any higher order bytes are 0
+  {
+    unsigned int i;
+    //move the serialized bignum over to the right side of the buffer
+    for(i = count-1; i; --i)
+    {
+      buf[i+(sizeof(buf) - count)] = buf[i];
+    }
+  }
+
   //send b0
   if((count = write(fd, buf, sizeof(buf))) != sizeof(buf))
   {
@@ -608,6 +623,17 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   {
     debug("serialzing b1 got %d bytes\n", count);
     return -3;
+  }
+
+  //move the number over if higher order bytes are zero
+  if(count && count < PUB_BITS/8)
+  {
+    unsigned int i;
+    //move the serialized bignum over to the right side of the buffer
+    for(i = count-1; i; --i)
+    {
+      buf[i+(sizeof(buf) - count)] = buf[i];
+    }
   }
 
   //send b1
