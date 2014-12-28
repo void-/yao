@@ -87,6 +87,7 @@
 #define EBAD_BLIND 14
 #define EBAD_ARITHM 15
 
+static void rightAlign(unsigned char *, size_t, size_t);
 static int sendPublicKey(RSA *, int);
 static int sendBlindingFactors(BIGNUM *, BIGNUM *, int);
 static ssize_t readExactly(int, void *, size_t);
@@ -244,6 +245,8 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
+  rightAlign(buf, count, PUB_BITS/8);
+
   //buf -> bignum k
   //(k - b0 (mod N) ; k - b1 (mod N)) -> buf
   //decrypt buf
@@ -276,6 +279,8 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_DECODE;
     goto send_done;
   }
+
+  rightAlign(buf, count, PUB_BITS/8);
 
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
@@ -347,7 +352,7 @@ send_done:
   {
     BN_free(c);
   }
-  debug("error:%d\n");
+  debug("error:%d\n", error);
   return error;
 }
 
@@ -452,21 +457,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  if(count && count < PUB_BITS/8) //if any higher order bytes are 0
-  {
-    unsigned int i;
-    //right align the bignum to 128 bytes, leaving higher order bytes 0
-    for(i = count-1; i; --i)
-    {
-      buf[i+((PUB_BITS/8) - count)] = buf[i];
-    }
-
-    //zero out the higher order bytes
-    for(i = 0; i < (PUB_BITS/8) - count; ++i)
-    {
-      buf[i] = 0;
-    }
-  }
+  rightAlign(keyBuffer, count, PUB_BITS/8);
 
   //debug("generated p:\n");
   //BN_print_fp(stdout, p);
@@ -490,7 +481,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   debug("encrypting under k\n");
   //encrypt padded symmetric key
   if((count = RSA_public_encrypt(PUB_BITS/8, keyBuffer, buf, k,
-      RSA_NO_PADDING)) < PUB_BITS/8)
+      RSA_NO_PADDING)) != PUB_BITS/8)
   {
     ERR_load_crypto_strings();
     debug("couldn't generate random key; got %d of %d bytes\n", count,
@@ -529,6 +520,8 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
+  rightAlign(keyBuffer, count, PUB_BITS/8);
+
   debug("writing blinded key\n");
   //hexdump(keyBuffer, PUB_BITS/8);
   //send encrypted symmetric key
@@ -537,23 +530,6 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     debug("Couldn't send encrypted symmetric key\n");
     error = -EBAD_SEND;
     goto rec_done;
-  }
-
-  //TODO: create function `rightAlign()'
-  if(count && count < PUB_BITS/8)
-  {
-    unsigned int i;
-    //move the serialized bignum over to the right side of the buffer
-    for(i = count-1; i; --i)
-    {
-      buf[i+(sizeof(buf) - count)] = buf[i];
-    }
-
-    //zero out the higher order bytes
-    for(i = 0; i < sizeof(buf) - count; ++i)
-    {
-      buf[i] = 0;
-    }
   }
 
   debug("reading secrets\n");
@@ -604,6 +580,30 @@ rec_done:
 }
 
 /**
+ *  @brief move a sequence of bytes over to the right side of a buffer.
+ *
+ *  A sequence of bytes may not fill the entire buffer leaving the higher order
+ *  addresses unused. Move the meaningful bytes to these higher order
+ *  addresses, zeroing the lower order ones.
+ *
+ *  bbb...bb___ -> 000bbb...bb
+ *
+ *  This is useful for serializing and deserializing bignums that have higher
+ *  order bytes as zero.
+ *
+ *  @param a the buffer to align.
+ *  @param len the length of the data currently in \p a.
+ *  @param align the total size of the buffer.
+ */
+void rightAlign(unsigned char *a, size_t len, size_t n)
+{
+  //move the data over, then zero the lower order bytes
+  memmove(a, a+(n-len), len);
+  memset(a, 0, n-len);
+}
+
+
+/**
  *  @brief serialize two BIGNUM's(blinding factors) and write them to a socket.
  *
  *  NOTE:
@@ -628,21 +628,8 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     return -1;
   }
 
-  if(count && count < PUB_BITS/8) //if any higher order bytes are 0
-  {
-    unsigned int i;
-    //move the serialized bignum over to the right side of the buffer
-    for(i = count-1; i; --i)
-    {
-      buf[i+(sizeof(buf) - count)] = buf[i];
-    }
-
-    //zero out the higher order bytes
-    for(i = 0; i < sizeof(buf) - count; ++i)
-    {
-      buf[i] = 0;
-    }
-  }
+  //move the number over if higher order bytes are zero
+  rightAlign(buf, count, PUB_BITS/8);
 
   //send b0
   if((count = write(fd, buf, sizeof(buf))) != sizeof(buf))
@@ -652,10 +639,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   }
 
   //zero buffer
-  for(count = 0; count < sizeof(buf); ++count)
-  {
-    buf[count] = 0;
-  }
+  memset(buf, 0, sizeof(buf));
 
   //serialize b1 ; < 128 bytes is ok because the higher order bytes can = 0
   if((count = BN_bn2bin(b1, buf)) > sizeof(buf))
@@ -664,22 +648,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
     return -3;
   }
 
-  //move the number over if higher order bytes are zero
-  if(count && count < PUB_BITS/8)
-  {
-    unsigned int i;
-    //move the serialized bignum over to the right side of the buffer
-    for(i = count-1; i; --i)
-    {
-      buf[i+(sizeof(buf) - count)] = buf[i];
-    }
-
-    //zero out the higher order bytes
-    for(i = 0; i < sizeof(buf) - count; ++i)
-    {
-      buf[i] = 0;
-    }
-  }
+  rightAlign(buf, count, PUB_BITS/8);
 
   //send b1
   if((count = write(fd, buf, sizeof(buf))) > sizeof(buf))
