@@ -87,6 +87,7 @@
 #define EBAD_BLIND 14
 #define EBAD_ARITHM 15
 
+static int _BN_bn2bin(BIGNUM *, unsigned char *);
 static void rightAlign(unsigned char *, size_t, size_t);
 static int sendPublicKey(RSA *, int);
 static int sendBlindingFactors(BIGNUM *, BIGNUM *, int);
@@ -129,7 +130,7 @@ static void hexdump(void const *const a, size_t n)
 int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     size_t size, seq_t no, int socketfd)
 {
-  debug("OTsend()#%d\n", no);
+  //debug("OTsend()#%d\n", no);
   unsigned char buf[BUF_MAX];
 
   ssize_t count;
@@ -210,7 +211,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     error = -EBAD_READ;
     goto send_done;
   }
-  debug("got encrypted symmetric key:\n");
+  //debug("got encrypted symmetric key:\n");
   //hexdump(buf, PUB_BITS/8);
 
   //encrypted symmetric key -> bignum
@@ -229,6 +230,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
+  //debug("ct-b0 = ");
+  //BN_print_fp(stdout, b0);
+  //debug("\n");
+
   //b1 = c - b1 (mod n)
   if(!BN_mod_sub(b1, c, b1, k->n, NULL))
   {
@@ -237,19 +242,26 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
     goto send_done;
   }
 
+  //debug("ct-b1 = ");
+  //BN_print_fp(stdout, b1);
+  //debug("\n");
+
   //b0 bignum -> buffer
-  if((count = BN_bn2bin(b0, buf)) > PUB_BITS/8)
+  if((count = _BN_bn2bin(b0, buf)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum b0 back to a buffer.\n");
     error = -EBAD_DECODE;
     goto send_done;
   }
 
-  rightAlign(buf, count, PUB_BITS/8);
+  //rightAlign(buf, count, PUB_BITS/8);
 
   //buf -> bignum k
   //(k - b0 (mod N) ; k - b1 (mod N)) -> buf
   //decrypt buf
+
+  debug("decrypting with b0:\n");
+  hexdump(buf, PUB_BITS/8);
 
   //decrypt under private key
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
@@ -273,14 +285,17 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   //hexdump(symKey0.rd_key, sizeof(symKey0.rd_key));
 
   //b1 bignum -> buffer
-  if((count = BN_bn2bin(b1, buf)) > PUB_BITS/8)
+  if((count = _BN_bn2bin(b1, buf)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum b1 back to a buffer.\n");
     error = -EBAD_DECODE;
     goto send_done;
   }
 
-  rightAlign(buf, count, PUB_BITS/8);
+  //rightAlign(buf, count, PUB_BITS/8);
+
+  debug("decrypting with b1:\n");
+  hexdump(buf, PUB_BITS/8);
 
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
@@ -306,7 +321,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
   //encrypt and write both secrets
   AES_encrypt(secret0, buf, &symKey0);
-  hexdump(buf, SYM_SIZE);
+  //hexdump(buf, SYM_SIZE);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret0 \n");
@@ -315,10 +330,10 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   }
   AES_encrypt(secret1, buf, &symKey1);
   AES_decrypt(buf, decryptBuffer, &dec);
-  debug("encrypted secret1:\n");
-  hexdump(buf, SYM_SIZE);
-  debug("decrypted secret1:\n");
-  hexdump(decryptBuffer, SYM_SIZE);
+  //debug("encrypted secret1:\n");
+  //hexdump(buf, SYM_SIZE);
+  //debug("decrypted secret1:\n");
+  //hexdump(decryptBuffer, SYM_SIZE);
   if(write(socketfd, buf, SYM_SIZE) != SYM_SIZE)
   {
     debug("Couldn't write secret1 \n");
@@ -375,7 +390,7 @@ send_done:
 int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     int socketfd)
 {
-  debug("OTreceive()#%d\n", no);
+  //debug("OTreceive()#%d\n", no);
   unsigned char buf[BUF_MAX];
   int error = 0;
   ssize_t count;
@@ -403,7 +418,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("trying to read a serialized key\n");
+  //debug("trying to read a serialized key\n");
   //read serialized key and deserialize it
   if((count = readExactly(socketfd, buf, SERIAL_SIZE)) < SERIAL_SIZE)
   {
@@ -422,6 +437,8 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //BN_print_fp(stdout, k->n);
   //debug("\n");
 
+  memset(buf, 0, sizeof(buf));
+
   //read blinding factors and deserialize either
   if((count = readExactly(socketfd, buf, (PUB_BITS/8)*2)) != (PUB_BITS/8)*2)
   {
@@ -429,7 +446,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_RECEIVE;
     goto rec_done;
   }
-  debug("trying to turn buffer into bignum\n");
+  //debug("trying to turn buffer into bignum\n");
   if(BN_bin2bn(buf+((PUB_BITS/8)*which), PUB_BITS/8, b) != b)
   {
     debug("Error deserializing blinding factor\n");
@@ -441,7 +458,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //BN_print_fp(stdout, b);
   //debug("\n");
 
-  debug("generating symmetric key\n");
+  //debug("generating symmetric key\n");
   //generate a symmetric key through a bignum; encrypt and blind it
   if(!BN_rand_range(p, k->n))
   {
@@ -449,22 +466,22 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     error = -EBAD_GEN;
     goto rec_done;
   }
-  debug("converting bignum to buffer\n");
-  if((count = BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
+  //debug("converting bignum to buffer\n");
+  if((count = _BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum to buffer ; got %d.\n", count);
     error = -EBAD_DECODE;
     goto rec_done;
   }
 
-  rightAlign(keyBuffer, count, PUB_BITS/8);
+  //rightAlign(keyBuffer, count, PUB_BITS/8);
 
-  //debug("generated p:\n");
+  //debug("p:\n");
   //BN_print_fp(stdout, p);
   //debug("\np as a buffer:\n");
   //hexdump(keyBuffer, sizeof(keyBuffer));
 
-  debug("deriving symmetric key from last 128 bits\n");
+  //debug("deriving symmetric key from last 128 bits\n");
   //derive a symmetric key from the last 128 bits - big endian
   if(AES_set_decrypt_key(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE*8,
       &symKey))
@@ -478,7 +495,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //hexdump(symKey.rd_key, sizeof(symKey.rd_key));
   hexdump(keyBuffer+((PUB_BITS/8) - SYM_SIZE), SYM_SIZE);
 
-  debug("encrypting under k\n");
+  //debug("encrypting under k\n");
   //encrypt padded symmetric key
   if((count = RSA_public_encrypt(PUB_BITS/8, keyBuffer, buf, k,
       RSA_NO_PADDING)) != PUB_BITS/8)
@@ -491,7 +508,10 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("converting ciphertext to bignum\n");
+  debug("encrypted:\n");
+  hexdump(buf, count);
+
+  //debug("converting ciphertext to bignum\n");
   //convert and blind symmetric key
   if(BN_bin2bn(buf, count, p) != p)
   {
@@ -500,29 +520,29 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("blinding ciphertext with blinding factor\n");
+  //debug("blinding ciphertext with blinding factor\n");
   if(!BN_mod_add(p, p, b, k->n, bnTmp))
   {
     debug("Error adding blinding factor, p+b\n");
     error = -EBAD_ARITHM;
     goto rec_done;
   }
-  //debug("ct+b = ");
+  //debug("ct+b%d= ", which);
   //BN_print_fp(stdout, p);
   //debug("\n");
 
-  debug("serializing bn to buffer\n");
+  //debug("serializing bn to buffer\n");
   //serialize p and send it
-  if((count = BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
+  if((count = _BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
     debug("Couldn't convert bignum to buffer.\n");
     error = -EBAD_DECODE;
     goto rec_done;
   }
 
-  rightAlign(keyBuffer, count, PUB_BITS/8);
+  //rightAlign(keyBuffer, count, PUB_BITS/8);
 
-  debug("writing blinded key\n");
+  //debug("writing blinded key\n");
   //hexdump(keyBuffer, PUB_BITS/8);
   //send encrypted symmetric key
   if(write(socketfd, keyBuffer, PUB_BITS/8) != PUB_BITS/8)
@@ -532,7 +552,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
     goto rec_done;
   }
 
-  debug("reading secrets\n");
+  //debug("reading secrets\n");
   //receive both encrypted secrets
   if((count = readExactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
   {
@@ -542,7 +562,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   }
 
   //decrypt either secret
-  debug("received:\n");
+  //debug("received:\n");
   hexdump(buf+(which*SYM_SIZE), SYM_SIZE);
   AES_decrypt(buf+(which*SYM_SIZE), output, &symKey);
 
@@ -580,6 +600,18 @@ rec_done:
 }
 
 /**
+ *  @brief call BN_bn2bin(), but include with leading zeros.
+ *
+ *  @param bn the bignum to serialize.
+ *  @param to the buffer to write to, must be atleast PUB_BITS/8 long.
+ */
+static int _BN_bn2bin(BIGNUM *bn, unsigned char *to)
+{
+  memset(to, 0, (PUB_BITS/8) - BN_num_bytes(bn));
+  return BN_bn2bin(bn, to+((PUB_BITS/8) - BN_num_bytes(bn)));
+}
+
+/**
  *  @brief move a sequence of bytes over to the right side of a buffer.
  *
  *  A sequence of bytes may not fill the entire buffer leaving the higher order
@@ -602,7 +634,6 @@ void rightAlign(unsigned char *a, size_t len, size_t n)
   memset(a, 0, n-len);
 }
 
-
 /**
  *  @brief serialize two BIGNUM's(blinding factors) and write them to a socket.
  *
@@ -622,14 +653,14 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   unsigned char buf[PUB_BITS/8] = {0};
 
   //serialize b0
-  if((count = BN_bn2bin(b0, buf)) > sizeof(buf))
+  if((count = _BN_bn2bin(b0, buf)) > sizeof(buf))
   {
     debug("serialzing b0 got %d != count:%d bytes\n", sizeof(buf), count);
     return -1;
   }
 
   //move the number over if higher order bytes are zero
-  rightAlign(buf, count, PUB_BITS/8);
+  //rightAlign(buf, count, PUB_BITS/8);
 
   //send b0
   if((count = write(fd, buf, sizeof(buf))) != sizeof(buf))
@@ -642,13 +673,13 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   memset(buf, 0, sizeof(buf));
 
   //serialize b1 ; < 128 bytes is ok because the higher order bytes can = 0
-  if((count = BN_bn2bin(b1, buf)) > sizeof(buf))
+  if((count = _BN_bn2bin(b1, buf)) > sizeof(buf))
   {
     debug("serialzing b1 got %d bytes\n", count);
     return -3;
   }
 
-  rightAlign(buf, count, PUB_BITS/8);
+  //rightAlign(buf, count, PUB_BITS/8);
 
   //send b1
   if((count = write(fd, buf, sizeof(buf))) > sizeof(buf))
@@ -792,7 +823,7 @@ static ssize_t readExactly(int fd, void *buf, size_t count)
   ssize_t success;
   size_t left = count;
   size_t total = 0;
-  debug("trying to read exactly %d bytes\n", count);
+  //debug("trying to read exactly %d bytes\n", count);
   while(total < count)
   {
     success = read(fd, buf+total, left);
