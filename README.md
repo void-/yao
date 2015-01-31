@@ -19,20 +19,20 @@ recent exam. However, neither one wants to reveal the actual value of their
 respective scores. Alice will act as the server, Bob the client.
 
 Alice
-> $ SECRET=93
-> $ PORT=8080
-> $ ./yao $SECRET $PORT
-> Listening on port 8080
-> ...
-> Ask the client for the result
+    $ SECRET=93
+    $ PORT=8080
+    $ ./yao $SECRET $PORT
+    Listening on port 8080
+    ...
+    Ask the client for the result
 
 Bob
-> $ SECRET=23
-> $ PORT=8080
-> $ ALICE=192.168.1.111
-> $ ./yao $SECRET $ALICE $PORT
-> ...
-> Server's is >= Client's
+    $ SECRET=23
+    $ PORT=8080
+    $ ALICE=192.168.1.111
+    $ ./yao $SECRET $ALICE $PORT
+    ...
+    Server's is >= Client's
 
 
 Building
