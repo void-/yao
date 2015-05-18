@@ -43,9 +43,9 @@ To build the main program, run:
 > $ make
 
 Dependant on:
-- libssl
 - libcrypto
 - glibc
+- openssl headers
 - unix headers
 
 To generate documentation, run:
