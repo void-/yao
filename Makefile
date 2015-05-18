@@ -1,5 +1,5 @@
 CC = "gcc"
-LDFLAGS = -lssl -lcrypto
+LDFLAGS = -lcrypto
 CFLAGS = -DDEBUG=1
 BIN = "yao"
 DOC_CONFIG = "docs/doxygenConfig"
