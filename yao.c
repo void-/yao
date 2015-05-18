@@ -154,7 +154,7 @@ int alice(sec_t secret, int socketfd)
   //v = 0;
   //u = v = 64;
 
-  debug("u:%d, v:%d\n",u,v);
+  debug("u:%zu, v:%zu\n",u,v);
 
   debug("alice(): beggining to fill matrix\n");
   for(i = 0; i < d; ++i)
@@ -250,7 +250,7 @@ int alice(sec_t secret, int socketfd)
   //send N
   if((count = write(socketfd, N, sizeof(N))) != sizeof(N))
   {
-    debug("Couldn't write N; read %d bytes\n", count);
+    debug("Couldn't write N; read %zu bytes\n", count);
     error = -EBAD_WRITE;
     goto done;
   }
@@ -265,11 +265,11 @@ int alice(sec_t secret, int socketfd)
     hexdump(packedSecret1, SYM_SIZE);
     if(OTsend(packedSecret0, packedSecret1, k/(8), i, socketfd))
     {
-      debug("OTsend() failed on i=%d\n", i);
+      debug("OTsend() failed on i=%zu\n", i);
       error = -EBAD_OT;
       goto done;
     }
-    debug("OT %d complete\n", i);
+    debug("OT %zu complete\n", i);
   }
 
   debug("Oblivious transfers complete\n");
@@ -300,7 +300,7 @@ int bob(sec_t secret, int socketfd)
   //read N
   if((count = read(socketfd, N, sizeof(N))) != sizeof(N))
   {
-    debug("Couldn't read N; read %d bytes\n", count);
+    debug("Couldn't read N; read %zu bytes\n", count);
     error = -EBAD_READ;
     goto done;
   }
@@ -312,7 +312,7 @@ int bob(sec_t secret, int socketfd)
     debug("%d\n", fortuneI(secret, i));
     if(OTreceive(buf, sizeof(buf), fortuneI(secret, i), i, socketfd))
     {
-      debug("OTreceive() failed on i=%d\n", i);
+      debug("OTreceive() failed on i=%zu\n", i);
       error = -EBAD_OT;
       goto done;
     }
@@ -327,7 +327,7 @@ int bob(sec_t secret, int socketfd)
   dump(N);
   //look from right to left for a large substring of zeros
   i = findZeros(N, sizeof(N));
-  debug("found %d\n", i);
+  debug("found %zu\n", i);
 
   //look at the bit 2 before the longest substring of zeros
   error = (N[i-1] == 1);
