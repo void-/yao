@@ -199,7 +199,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
 
   if(count = sendBlindingFactors(b0, b1, socketfd))
   {
-    debug("Couldn't send blinding factors ; got %d.\n", count);
+    debug("Couldn't send blinding factors ; got %zi.\n", count);
     error = -EBAD_SEND;
     goto send_done;
   }
@@ -207,7 +207,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   //read for the encrypted symmetric key
   if((count = readExactly(socketfd, buf, PUB_BITS/8)) < PUB_BITS/8)
   {
-    debug("Couldn't read symmetric key, read %d\n", count);
+    debug("Couldn't read symmetric key, read %zi\n", count);
     error = -EBAD_READ;
     goto send_done;
   }
@@ -267,7 +267,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k and b0, got %d\n", count);
+    debug("Couldn't decrypt with k and b0, got %zi\n", count);
     ERR_load_crypto_strings();
     debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_DECRYPT;
@@ -300,7 +300,7 @@ int OTsend(const unsigned char *secret0, const unsigned char *secret1,
   if((count = RSA_private_decrypt(PUB_BITS / 8, buf, decryptBuffer, k,
         RSA_NO_PADDING)) < PUB_BITS / 8)
   {
-    debug("Couldn't decrypt with k and b1, got %d\n", count);
+    debug("Couldn't decrypt with k and b1, got %zi\n", count);
     ERR_load_crypto_strings();
     debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_DECRYPT;
@@ -422,7 +422,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //read serialized key and deserialize it
   if((count = readExactly(socketfd, buf, SERIAL_SIZE)) < SERIAL_SIZE)
   {
-    debug("couldn't read serialized public keys; read %d\n", count);
+    debug("couldn't read serialized public keys; read %zi\n", count);
     error = -EBAD_RECEIVE;
     goto rec_done;
   }
@@ -442,7 +442,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //read blinding factors and deserialize either
   if((count = readExactly(socketfd, buf, (PUB_BITS/8)*2)) != (PUB_BITS/8)*2)
   {
-    debug("Couldn't read blinding factors ; read %d", count);
+    debug("Couldn't read blinding factors ; read %zi", count);
     error = -EBAD_RECEIVE;
     goto rec_done;
   }
@@ -469,7 +469,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //debug("converting bignum to buffer\n");
   if((count = _BN_bn2bin(p, keyBuffer)) > PUB_BITS/8)
   {
-    debug("Couldn't convert bignum to buffer ; got %d.\n", count);
+    debug("Couldn't convert bignum to buffer ; got %zi.\n", count);
     error = -EBAD_DECODE;
     goto rec_done;
   }
@@ -501,7 +501,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
       RSA_NO_PADDING)) != PUB_BITS/8)
   {
     ERR_load_crypto_strings();
-    debug("couldn't generate random key; got %d of %d bytes\n", count,
+    debug("couldn't generate random key; got %zi of %zu bytes\n", count,
       sizeof(keyBuffer));
     debug("error:%s\n", ERR_error_string(ERR_get_error(), NULL));
     error = -EBAD_ENCRYPT;
@@ -556,7 +556,7 @@ int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
   //receive both encrypted secrets
   if((count = readExactly(socketfd, buf, 2*SYM_SIZE)) < 2*SYM_SIZE)
   {
-    debug("received too few bytes from transfer; count = %d", count);
+    debug("received too few bytes from transfer; count = %zi", count);
     error = -EBAD_TRANSFER;
     goto rec_done;
   }
@@ -655,7 +655,7 @@ static int sendBlindingFactors(BIGNUM *b0, BIGNUM *b1, int fd)
   //serialize b0
   if((count = _BN_bn2bin(b0, buf)) > sizeof(buf))
   {
-    debug("serialzing b0 got %d != count:%d bytes\n", sizeof(buf), count);
+    debug("serialzing b0 got %zu != count:%d bytes\n", sizeof(buf), count);
     return -1;
   }
 
@@ -705,6 +705,7 @@ static int sendPublicKey(RSA *k, int fd)
   unsigned char *bufPtr = buf;
   debug("serializing k\n");
   int count = i2d_RSAPublicKey(k, &bufPtr);
+  size_t i;
   debug("serialization complete\n");
 
   //check serialization length
@@ -715,11 +716,10 @@ static int sendPublicKey(RSA *k, int fd)
   }
   debug("count:%d\n", count);
 
-  size_t i;
   //write k
   if((i = write(fd, buf, count)) != count)
   {
-    debug("Failed to write key ; wrote %d\n", i);
+    debug("Failed to write key ; wrote %zu\n", i);
     return -2;
   }
   debug("k sent\n");
@@ -787,7 +787,7 @@ static int getSeq(int fd, const char *msg, size_t len, seq_t no)
   //check length
   if((count = readExactly(fd, buf, len+sizeof(no))) < len+sizeof(no))
   {
-    debug("seq wrong length; got %d, expected %d\n", count, len+sizeof(no));
+    debug("seq wrong length; got %zu, expected %zu\n", count, len+sizeof(no));
     return -1;
   }
 
