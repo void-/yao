@@ -119,7 +119,7 @@ static void hexdump(void *a, size_t n)
  *  @param secret the secret to compare in the protocol.
  *  @param socketfd file descriptor to write to for the protocol.
  */
-int alice(sec_t secret, int socketfd)
+int alice(const sec_t secret, const int socketfd)
 {
   debug("called alice() with secret %d with fd %d\n", secret, socketfd);
   int error = 1;
@@ -288,7 +288,7 @@ done:
  *  @param socketfd file descriptor to read and write during the protocol.
  *  @return non-zero on failure, 1 if a >= b, 0 if b > a.
  */
-int bob(sec_t secret, int socketfd)
+int bob(const sec_t secret, const int socketfd)
 {
   debug("called bob() with secret %d with fd %d\n", secret, socketfd);
   int error = 0;

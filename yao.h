@@ -6,7 +6,7 @@
  */
 typedef int sec_t;
 
-int alice(sec_t, int);
-int bob(sec_t, int);
+int alice(const sec_t, const int);
+int bob(const sec_t, const int);
 
 #endif //YAO_H
