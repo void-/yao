@@ -144,8 +144,8 @@ static void hexdump(void const *const a, size_t n)
  *  @param socketfd file descriptor to the socket to use for the connection.
  *  @return non-zero on failure.
  */
-int OTsend(const unsigned char *secret0, const unsigned char *secret1,
-    size_t size, seq_t no, int socketfd)
+int OTsend(unsigned char const *const secret0, unsigned char const *const
+    secret1, const size_t size, const seq_t no, const int socketfd)
 {
   //debug("OTsend()#%d\n", no);
   unsigned char buf[BUF_MAX];
@@ -404,8 +404,8 @@ send_done:
  *  @param no sequence number of which iteration of oblivious transfer this is.
  *  @return non-zero on failure.
  */
-int OTreceive(unsigned char *output, size_t size, bool which, seq_t no,
-    int socketfd)
+int OTreceive(unsigned char *const output, const size_t size, const bool which,
+    const seq_t no, const int socketfd)
 {
   //debug("OTreceive()#%d\n", no);
   unsigned char buf[BUF_MAX];

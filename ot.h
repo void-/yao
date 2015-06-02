@@ -8,7 +8,8 @@
 typedef uint16_t seq_t;
 #define SYM_SIZE AES_BLOCK_SIZE
 
-int OTsend(const unsigned char *, const unsigned char *, size_t, seq_t,
-  int);
-int OTreceive(unsigned char *, size_t, bool, seq_t, int);
+int OTsend(unsigned char const *const, unsigned char const *const,
+  const size_t, const seq_t, const int);
+int OTreceive(unsigned char *const, const size_t, const bool, const seq_t,
+  const int);
 #endif //OT_H
