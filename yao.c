@@ -1,5 +1,6 @@
 /**
- *  Yao's Millionaires problem implementation.
+ *  @file yao.c
+ *  @brief Yao's Millionaires problem implementation.
  *
  *  Pseudo-code.
  *  @code
@@ -47,6 +48,7 @@
  *    r = N ^ reduce(xor, map(OTreceive, fortune[0..d-1]))
  *
  *    look at r to determine if Alice's fortune > Bob's fortune
+ *    the bit before the longest substring of zeros in r is the answer
  *  @endcode
  */
 
@@ -350,7 +352,6 @@ done:
  * 
  *  @param a the array of bits to scan.
  *  @param n the length of \p a.
- * 
  *  @return the index before the start of the longest substring of zeros.
  */
 static size_t findZeros(bool *a, size_t n)
