@@ -1,19 +1,35 @@
 /**
- *  Oblivious transfer protocol.
+ *  @file ot.c
+ *  @brief Oblivious transfer protocol.
  *
  *  Protocol implementation.
  *  -# Client says hello: "OT#i", where 'i' specifies this is the little-endian
  *     binary representing this is the ith OT preformed.
- *  -# Server sends (K, x0, x1): K a public key, x0, x1 blinding factors
+ *  -# Server sends (K, x0, x1): K a public key, x0, x1 blinding factors.
  *  -# Client sends k: an encrypted symmetric key, blinded under either x.
  *  -# Server sends (C0, C1) : secrets 0 and 1 encrypted under decrypted k.
  *  -# Client sends goodbye: "FN#i", where 'i' is the ith OT preformed.
  *
- *  Use RSA with blinding to mitigate problems with the RSA modulus.
+ *  Use RSA with blinding to mitigate problems with the RSA modulus; this was a
+ *  problem from the previous implementation.
  *
  *  The public key encryption must not have any structured padding(e.g. PKCS#1
- *  or OAEP) otherwise the server could detect which secret the client is
+ *  or OAEP) otherwise the server will detect which secret the client is
  *  requesting.
+ *
+ *  A note on why the symmetric key is the last 128 bits of a random bignum via
+ *  example:
+ *  <p>
+ *    @code
+ *    K = k bit symmetric key
+ *    Client sends E(K) + x0; K encrypted under the public key and x0 blinded
+ *    Server receives C
+ *    D(C - x0) -> a 128 bit value
+ *    D(C - x1) -> a 1024 bit value
+ *    Server: lol noob
+ *    @endcode
+ *  </p>
+ *
  */
 
 #include "ot.h"
@@ -31,7 +47,7 @@
 #include <openssl/aes.h>
 #include <openssl/err.h>
 
-#include <string.h>
+#include <string.h> //for memset, memmove
 
 /**
  *  Constants.
@@ -42,7 +58,8 @@
  *  GOODBYE_MSG the terminating message, without the sequence number.
  *  GOODBYE_SIZE the number of characters for a goodbye message.
  *  PUB_BITS the number of bits to use for public keys.
- *  SERIAL_SIZE the number of bytes to represent a serialized public key.
+ *  SERIAL_SIZE the number of bytes to represent a serialized public key. This
+ *    is hardcoded, but probably shouldn't be.
  *  SYM_SIZE the number of bytes use for symmetric keys.
  */
 #define BUF_MAX 512
