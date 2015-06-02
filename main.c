@@ -1,3 +1,7 @@
+/**
+ *  @file main.c
+ *  @brief Command line interface for yao
+ */
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -33,8 +37,10 @@ static sec_t secret;
 /**
  *  @brief determine whether to act as the server or client.
  *
- *  argv = binary secret host port
- *       = binary secret port 
+ *  @param argc length of \p argv.
+ *  @param argv argument vector in the form of:
+ *    @code binary secret [host] port @endcode
+ *  @return 0 if client's secret is > server's, non-zero otherwise.
  */
 int main(int argc, char **argv)
 {
